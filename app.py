@@ -468,6 +468,35 @@ def kakao_url(name, lat, lng):
             f"{quote(str(name), safe='')},{lat},{lng}")
 
 
+NAVER_MAX_VIA = 5   # 네이버지도 URL Scheme이 지원하는 경유지 최대 개수
+
+
+def naver_route_url(station, stops, app_name="paseru.origin"):
+    """네이버지도 자동차 길찾기 링크 — 출발(센터) → 경유지들 → 도착(센터).
+
+    경유지는 최대 5개까지 지원하므로, 그보다 많으면 호출부에서 나눠서 만든다.
+    """
+    q = lambda s: quote(str(s), safe="")
+    parts = [
+        f"slat={station['lat']}", f"slng={station['lng']}", f"sname={q(station['name'])}",
+    ]
+    for i, s in enumerate(stops[:NAVER_MAX_VIA], start=1):
+        parts += [f"v{i}lat={s['lat']}", f"v{i}lng={s['lng']}", f"v{i}name={q(s['name'])}"]
+    # 마지막은 다시 센터로 복귀
+    parts += [f"dlat={station['lat']}", f"dlng={station['lng']}", f"dname={q(station['name'])}"]
+    parts.append(f"appname={app_name}")
+    return "nmap://route/car?" + "&".join(parts)
+
+
+def naver_route_links(station, legs):
+    """노선 전체를 경유지 포함 링크로 만든다. 경유지가 5개를 넘으면 구간을 나눠 여러 개로."""
+    stops = [{"name": lg["to"], "lat": lg["lat"], "lng": lg["lng"]} for lg in legs]
+    if not stops:
+        return []
+    chunks = [stops[i:i + NAVER_MAX_VIA] for i in range(0, len(stops), NAVER_MAX_VIA)]
+    return [(naver_route_url(station, c), c) for c in chunks]
+
+
 def card_title(step, text):
     st.markdown(
         f'<div class="paseru-card-title"><span class="paseru-step">{step}</span>{text}</div>',
@@ -756,9 +785,23 @@ if uploaded is not None:
         df = pd.read_excel(uploaded)
 elif use_sample:
     df = pd.read_csv(SAMPLE_CSV)
-    # 이 샘플 파일의 연번 0행은 출발점(성주소방서) 자신이므로 순찰 대상 목록에서 제외
-    if "연번" in df.columns:
-        df = df[df["연번"] != 0].reset_index(drop=True)
+
+# 출발지(소방서·센터) 자신이 순찰 대상 목록에 섞여 있으면 제외한다.
+# (업로드 파일 첫 줄에 소방서를 넣어두는 경우가 많아, 그대로 두면 소방서가 경유지로 잡힌다)
+excluded_station_rows = 0
+if df is not None and len(df):
+    def _norm(v):
+        return re.sub(r"\s+", "", str(v)) if v is not None else ""
+
+    st_name_n, st_addr_n = _norm(station_name), _norm(station_address)
+    mask_keep = []
+    for _, r in df.iterrows():
+        vals = [_norm(v) for v in r.values]
+        is_station = any(v and (v == st_name_n or v == st_addr_n) for v in vals)
+        mask_keep.append(not is_station)
+    excluded_station_rows = len(df) - sum(mask_keep)
+    if excluded_station_rows:
+        df = df[pd.Series(mask_keep, index=df.index)].reset_index(drop=True)
 
 # ----------------------------------------------------------------------------
 # 5 · 미리보기 · 노선 생성
@@ -766,9 +809,12 @@ elif use_sample:
 if df is not None and len(df):
     st.write("")
     with st.container(border=True):
-        card_title(5, "데이터 확인 · 노선 생성")
+        card_title(5, "데이터 확인 · 좌표 찾기")
         st.dataframe(df.head(10), use_container_width=True)
         st.caption(f"총 {len(df)}건의 대상이 인식되었습니다.")
+        if excluded_station_rows:
+            st.info(f"ℹ️ 목록에 있던 출발지({station_name}) {excluded_station_rows}건은 "
+                    "순찰 대상이 아니라 출발·복귀 지점이므로 자동으로 제외했습니다.")
 
         cols = list(df.columns)
         # 이름 컬럼 기본값: "연번" 같은 숫자 컬럼이 아니라 실제 명칭이 담긴 컬럼을 우선 선택
@@ -826,24 +872,126 @@ if df is not None and len(df):
             st.caption("파일에 위·경도가 없어 주소로 좌표를 찾습니다(NCP Geocoding).")
 
 
-        # 실행 전 예상 API 호출량 안내 (요금·시간 가늠용)
         n_targets = len(df)
-        geo_calls = 0 if coord_mode == "file" else n_targets   # 주소→좌표 변환 호출
-        if candidate_k:
-            est_calls = geo_calls + n_targets * candidate_k + n_targets
-        else:
-            est_calls = geo_calls + n_targets * (n_targets + 1) // 2 + n_targets
-        est_sec = int(est_calls * 0.25)
-        st.info(f"대상 {n_targets}개소 · 예상 NCP 호출 약 **{est_calls:,}회** "
-                f"(예상 소요 약 {est_sec // 60}분 {est_sec % 60}초). "
-                + ("‘API 호출 절약’이 켜져 있습니다." if candidate_k
-                   else "⚠ ‘API 호출 절약’이 꺼져 있어 호출량이 많습니다."))
+        st.caption(f"1단계에서 좌표를 먼저 확정하고, 2단계에서 그 좌표로 노선을 만듭니다. "
+                   f"좌표 찾기에는 약 {n_targets}~{n_targets * 3}회의 호출이 듭니다.")
 
-        st.caption(f"⛔ 최대 {max_calls:,}회까지만 호출하고 자동으로 멈춥니다. "
-                   "계산 도중 아래 '중단' 버튼을 눌러 즉시 멈출 수도 있습니다.")
+        find_coords = st.button("① 좌표 찾기 (주소 → 위·경도)", type="primary",
+                                disabled=not has_keys(), use_container_width=True)
 
-        run = st.button("🚀 노선 생성 (실제 지오코딩 · 실도로거리 계산)", type="primary",
-                        disabled=not has_keys(), use_container_width=True)
+    # ---- 1단계: 좌표 확정 ---------------------------------------------------
+    if find_coords:
+        rows = []
+        prog = st.progress(0.0, text="주소로 좌표를 찾는 중...")
+        n = len(df)
+        for i, (_, row) in enumerate(df.iterrows()):
+            nm, ad = str(row[name_col]), str(row[addr_col])
+
+            file_lat = file_lng = None
+            if lat_col_guess and lng_col_guess:
+                try:
+                    file_lat, file_lng = float(row[lat_col_guess]), float(row[lng_col_guess])
+                    if math.isnan(file_lat) or math.isnan(file_lng):
+                        file_lat = file_lng = None
+                except (TypeError, ValueError):
+                    file_lat = file_lng = None
+
+            if coord_mode == "file" and file_lat is not None:
+                rows.append({"대상명": nm, "주소": ad, "위도": file_lat, "경도": file_lng,
+                             "상태": "파일 좌표", "비고": "파일에 있던 좌표를 그대로 사용"})
+            else:
+                lat, lng, used_q, used_why, tried = geocode_with_fallback(ad, nm)
+                if lat is None and file_lat is not None:
+                    rows.append({"대상명": nm, "주소": ad, "위도": file_lat, "경도": file_lng,
+                                 "상태": "⚠ 파일 좌표로 대체",
+                                 "비고": "주소로는 못 찾아 파일 좌표를 사용했습니다"})
+                elif lat is None:
+                    rows.append({"대상명": nm, "주소": ad, "위도": None, "경도": None,
+                                 "상태": "❌ 실패",
+                                 "비고": "시도: " + " / ".join(tried)})
+                else:
+                    gap_note = ""
+                    if coord_mode == "verify" and file_lat is not None:
+                        gap = haversine_km((file_lat, file_lng), (lat, lng))
+                        if gap > verify_tol_km:
+                            gap_note = f" (파일 좌표와 {gap:.1f}km 차이 — API 좌표로 교체)"
+                        else:
+                            lat, lng = file_lat, file_lng
+                    rows.append({
+                        "대상명": nm, "주소": ad, "위도": lat, "경도": lng,
+                        "상태": "✅ 확인" if used_why == "원본 주소" else "🔧 주소 보정 후 확인",
+                        "비고": ("" if used_why == "원본 주소" else f"{used_why} → {used_q}") + gap_note,
+                    })
+            prog.progress((i + 1) / n, text=f"주소로 좌표를 찾는 중... ({i+1}/{n})")
+        prog.empty()
+        st.session_state["coords_df"] = pd.DataFrame(rows)
+        st.session_state.pop("route_results", None)   # 좌표가 바뀌었으니 이전 노선 결과는 폐기
+
+    coords_df = st.session_state.get("coords_df")
+
+    if coords_df is not None:
+        st.write("")
+        with st.container(border=True):
+            card_title(6, "좌표 확인 · 직접 수정")
+            ok_n = int(coords_df["위도"].notna().sum())
+            fail_n = int(coords_df["위도"].isna().sum())
+            k1, k2, k3 = st.columns(3)
+            k1.metric("전체", f"{len(coords_df)}")
+            k2.metric("좌표 확보", f"{ok_n}")
+            k3.metric("좌표 없음", f"{fail_n}")
+
+            if fail_n:
+                st.error(f"❌ {fail_n}건은 좌표를 찾지 못했습니다. 아래 표의 **위도·경도 칸에 직접 입력**하시면 "
+                         "노선 생성에 포함됩니다. (네이버·카카오 지도에서 해당 지점을 찍고 좌표를 확인해 넣으시면 됩니다.)")
+            else:
+                st.success("✅ 모든 대상의 좌표가 확보되었습니다. 아래 2단계로 진행하세요.")
+
+            st.caption("위도·경도 칸은 직접 고칠 수 있습니다. 수정하면 그 값이 노선 생성에 그대로 쓰입니다.")
+            edited = st.data_editor(
+                coords_df, use_container_width=True, hide_index=True, num_rows="fixed",
+                key="coords_editor",
+                column_config={
+                    "대상명": st.column_config.TextColumn(disabled=True, width="medium"),
+                    "주소": st.column_config.TextColumn(disabled=True, width="large"),
+                    "위도": st.column_config.NumberColumn(format="%.6f", help="예: 35.919000"),
+                    "경도": st.column_config.NumberColumn(format="%.6f", help="예: 128.283000"),
+                    "상태": st.column_config.TextColumn(disabled=True, width="small"),
+                    "비고": st.column_config.TextColumn(disabled=True, width="large"),
+                },
+            )
+            st.session_state["coords_df"] = edited
+
+            st.download_button(
+                "📥 확정된 좌표 CSV로 저장 (다음엔 이 파일을 올리면 좌표 찾기 없이 바로 진행)",
+                data=edited.to_csv(index=False).encode("utf-8-sig"),
+                file_name="확정좌표.csv", mime="text/csv",
+            )
+
+        st.write("")
+        with st.container(border=True):
+            card_title(7, "노선 생성")
+            ready = edited["위도"].notna() & edited["경도"].notna()
+            n_ready = int(ready.sum())
+
+            if candidate_k:
+                est_calls = n_ready * candidate_k + n_ready
+            else:
+                est_calls = n_ready * (n_ready + 1) // 2 + n_ready
+            est_sec = int(est_calls * 0.25)
+            st.info(f"좌표 확보 {n_ready}개소 기준 · 예상 NCP 호출 약 **{est_calls:,}회** "
+                    f"(약 {est_sec // 60}분 {est_sec % 60}초). "
+                    + ("‘API 호출 절약’이 켜져 있습니다." if candidate_k
+                       else "⚠ ‘API 호출 절약’이 꺼져 있어 호출량이 많습니다."))
+            st.caption(f"⛔ 최대 {max_calls:,}회까지만 호출하고 자동으로 멈춥니다.")
+
+            if n_ready < len(edited):
+                st.warning(f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다.")
+
+            run = st.button("② 노선 생성 (실도로거리 계산)", type="primary",
+                            disabled=(not has_keys() or n_ready == 0), use_container_width=True)
+    else:
+        run = False
+        st.info("먼저 위의 **① 좌표 찾기**를 눌러 좌표를 확정해 주세요.")
 
     if run:
         # ---- 중단 장치 ----------------------------------------------------
@@ -872,76 +1020,21 @@ if df is not None and len(df):
             st.stop()
         station = {"name": station_name, "lat": s_lat, "lng": s_lng}
 
-        # 2) 대상지 좌표 확보 (주소로 찾기 / 파일 좌표 검증 / 파일 좌표 그대로)
+        # 2) 1단계에서 확정한 좌표를 그대로 사용 (여기서는 지오코딩을 하지 않는다)
         points = []
-        mismatches = []          # 파일 좌표와 NCP 좌표가 크게 다른 항목
-        geo_failures = []        # 끝까지 좌표를 못 찾은 항목
-        geo_fixed = []           # 재시도(2차·3차)로 찾아낸 항목
-        progress = st.progress(0.0, text="주소 지오코딩 중...")
-        n = len(df)
-        for i, (_, row) in enumerate(df.iterrows()):
-            file_lat = file_lng = None
-            if lat_col_guess and lng_col_guess:
-                try:
-                    file_lat = float(row[lat_col_guess])
-                    file_lng = float(row[lng_col_guess])
-                    if math.isnan(file_lat) or math.isnan(file_lng):
-                        file_lat = file_lng = None
-                except (TypeError, ValueError):
-                    file_lat = file_lng = None
+        for _, r in edited.iterrows():
+            try:
+                lat, lng = float(r["위도"]), float(r["경도"])
+            except (TypeError, ValueError):
+                continue
+            if math.isnan(lat) or math.isnan(lng):
+                continue
+            points.append({"name": str(r["대상명"]), "address": str(r["주소"]),
+                           "lat": lat, "lng": lng})
 
-            if coord_mode == "file" and file_lat is not None:
-                lat, lng = file_lat, file_lng
-            else:
-                # 1차 원본 주소 → 실패 시 2차·3차(행정리→법정리, 번지 제외 등)로 재시도
-                lat, lng, used_query, used_why, tried = geocode_with_fallback(
-                    str(row[addr_col]), str(row[name_col])
-                )
-                if lat is not None and used_why and used_why != "원본 주소":
-                    geo_fixed.append({
-                        "대상": str(row[name_col]), "원래 주소": str(row[addr_col]),
-                        "성공한 주소": used_query, "보정 방법": used_why,
-                    })
-                if lat is None:
-                    geo_failures.append({
-                        "대상": str(row[name_col]), "주소": str(row[addr_col]),
-                        "시도한 주소와 결과": " / ".join(tried),
-                        "파일 좌표 사용": "예" if file_lat is not None else "아니오(제외됨)",
-                    })
-                if lat is None and file_lat is not None:
-                    lat, lng = file_lat, file_lng     # 지오코딩 실패 시 파일 좌표로 대체
-                elif (coord_mode == "verify" and lat is not None and file_lat is not None):
-                    gap = haversine_km((file_lat, file_lng), (lat, lng))
-                    if gap > verify_tol_km:
-                        mismatches.append({
-                            "대상": str(row[name_col]), "주소": str(row[addr_col]),
-                            "차이(km)": round(gap, 1),
-                            "파일 좌표": f"{file_lat:.6f}, {file_lng:.6f}",
-                            "NCP 좌표": f"{lat:.6f}, {lng:.6f}",
-                        })
-                    else:
-                        lat, lng = file_lat, file_lng  # 오차 이내면 파일 좌표 유지
-
-            if lat is not None and not (isinstance(lat, float) and math.isnan(lat)):
-                points.append(
-                    {"name": str(row[name_col]), "address": str(row[addr_col]),
-                     "lat": float(lat), "lng": float(lng)}
-                )
-            progress.progress((i + 1) / n, text=f"주소 지오코딩 중... ({i+1}/{n})")
-        progress.empty()
-
-        # 지오코딩 결과 요약은 세션에 저장해 화면이 갱신돼도 사라지지 않게 한다
-        st.session_state["geo_report"] = {
-            "total": n, "ok": len(points),
-            "failures": geo_failures, "fixed": geo_fixed,
-        }
-
-        if mismatches:
-            st.warning(f"📍 파일의 위·경도와 실제 주소 좌표가 {verify_tol_km}km 넘게 다른 항목이 "
-                       f"{len(mismatches)}건 있어 **NCP 좌표로 교체**했습니다. "
-                       "다른 도구로 만든 좌표가 부정확했을 가능성이 큽니다.")
-            with st.expander("좌표가 달랐던 항목 보기", expanded=False):
-                st.dataframe(pd.DataFrame(mismatches), use_container_width=True, hide_index=True)
+        if not points:
+            st.error("좌표가 있는 대상이 없습니다. 1단계에서 좌표를 확정해 주세요.")
+            st.stop()
 
         # 3) 장거리 분리 (실도로거리 기준)
         long_progress = st.progress(0.0, text="소방서 기준 실도로거리 확인 중...")
@@ -1062,33 +1155,6 @@ if df is not None and len(df):
 if st.session_state.get("stop_btn"):
     st.info("⛔ 계산을 중단했습니다. (중단 시점까지의 계산 결과는 저장되지 않습니다. "
             "직전에 완료된 결과가 있으면 아래에 그대로 남아 있습니다.)")
-
-# ---- 지오코딩 결과 리포트 (화면이 갱신돼도 남아 있음) ----
-_geo = st.session_state.get("geo_report")
-if _geo:
-    st.write("")
-    with st.container(border=True):
-        card_title("📍", "주소 → 좌표 변환 결과")
-        gc1, gc2, gc3 = st.columns(3)
-        gc1.metric("전체 대상", f"{_geo['total']}")
-        gc2.metric("좌표 확보", f"{_geo['ok']}")
-        gc3.metric("실패", f"{len(_geo['failures'])}")
-
-        if _geo["fixed"]:
-            st.success(f"✅ {len(_geo['fixed'])}건은 처음 주소로는 못 찾았지만, "
-                       "주소를 보정해서(예: 성산1리 → 성산리) 좌표를 찾아냈습니다.")
-            with st.expander(f"보정해서 찾은 {len(_geo['fixed'])}건 보기"):
-                st.dataframe(pd.DataFrame(_geo["fixed"]), use_container_width=True, hide_index=True)
-
-        if _geo["failures"]:
-            st.error(f"❌ {len(_geo['failures'])}건은 여러 형태로 다시 시도했지만 좌표를 찾지 못했습니다. "
-                     "아래에서 어떤 주소로 시도했고 왜 실패했는지 확인하실 수 있습니다.")
-            st.dataframe(pd.DataFrame(_geo["failures"]), use_container_width=True, hide_index=True)
-            st.caption("💡 대부분 주소 표기 문제입니다. 정제_주소 칸을 도로명주소나 법정리 지번"
-                       "(예: '경상북도 성주군 성주읍 성산리 1805')으로 고쳐서 다시 올려보세요. "
-                       "'not_found'는 주소를 못 찾은 것이고, 'error:...'는 통신·인증 문제입니다.")
-        elif _geo["ok"] == _geo["total"]:
-            st.success("✅ 모든 대상의 좌표를 정상적으로 찾았습니다.")
 
 if "route_results" in st.session_state:
     station = st.session_state["station"]
@@ -1263,7 +1329,7 @@ if "route_results" in st.session_state:
                 rows = []
                 for i, leg in enumerate(rr["legs"], start=1):
                     rows.append({
-                        "순번": i, "지점": stop_label(leg["to"], leg.get("to_address")),
+                        "순번": str(i), "지점": stop_label(leg["to"], leg.get("to_address")),
                         "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
                     })
                 rows.append({"순번": "", "지점": f"복귀 ({station['name']})",
@@ -1271,11 +1337,34 @@ if "route_results" in st.session_state:
                              "구간시간(분)": round(rr["back_min"])})
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-                st.markdown("**📱 내비게이션 바로가기**")
-                for i, leg in enumerate(rr["legs"], start=1):
+                st.markdown("**📱 내비게이션 — 경유지 포함 전체 경로**")
+                links = naver_route_links(station, rr["legs"])
+                for li, (url, chunk) in enumerate(links, start=1):
+                    seq = " → ".join([station["name"]] + [c["name"] for c in chunk] + [station["name"]])
+                    label = ("🧭 네이버지도로 전체 경로 안내" if len(links) == 1
+                             else f"🧭 네이버지도 전체 경로 안내 ({li}/{len(links)}구간)")
                     st.markdown(
-                        f"- [{i}. {leg['to']} 길안내]({kakao_url(leg['to'], leg['lat'], leg['lng'])})"
+                        f'<a href="{url}" target="_top" style="display:inline-block;'
+                        'background:#03C75A;color:#fff;padding:9px 14px;border-radius:8px;'
+                        f'font-weight:700;text-decoration:none;font-size:13px;">{label}</a>',
+                        unsafe_allow_html=True,
                     )
+                    st.caption(f"경로: {seq}")
+                    with st.expander("링크가 안 열리면 (주소 직접 복사)", expanded=False):
+                        st.code(url, language=None)
+                if len(links) > 1:
+                    st.caption(f"※ 네이버지도는 경유지를 최대 {NAVER_MAX_VIA}개까지 지원해서 "
+                               "구간을 나눴습니다. 한 구간씩 순서대로 눌러 주세요.")
+                st.caption("※ 휴대폰에 네이버지도 앱이 설치되어 있어야 열립니다. "
+                           "PC에서는 열리지 않습니다.")
+
+                with st.expander("지점별 개별 길안내(카카오맵)", expanded=False):
+                    for i, leg in enumerate(rr["legs"], start=1):
+                        st.markdown(
+                            f"- [{i}. {leg['to']} 길안내]({kakao_url(leg['to'], leg['lat'], leg['lng'])})"
+                        )
+                    st.caption("카카오맵은 링크로 경유지를 한 번에 지정하는 기능이 없어 "
+                               "지점별 안내만 제공됩니다.")
 
             with col2:
                 m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
