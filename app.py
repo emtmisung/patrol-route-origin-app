@@ -360,7 +360,7 @@ PASERU_CSS = """
 
 :root{
   --accent:#c23c2c; --accent-hover:#a32f22; --accent-soft:#f4ddd8;
-  --line:#d7ddd2; --surface:#ffffff; --bg:#f1f4f0; --ink:#1c2420; --muted:#5c6660;
+  --line:#c3cbbd; --surface:#ffffff; --bg:#eef2ea; --ink:#141a17; --muted:#414a44;
   color-scheme: light;   /* 휴대폰 다크모드에서도 밝은 화면으로 고정 */
 }
 .stApp{ background: var(--bg); color: var(--ink); }
@@ -469,7 +469,37 @@ div[data-testid="stExpander"]{
   border:1px solid var(--line) !important; border-radius:12px !important;
   background: var(--surface); overflow:hidden;
 }
-div[data-testid="stMetricValue"]{ font-family:'IBM Plex Mono', monospace; }
+
+/* ---- 대비 강화: 지표·표·라벨이 흐리게 보이지 않도록 ---- */
+div[data-testid="stMetricValue"]{
+  font-family:'IBM Plex Mono', monospace;
+  color: var(--accent) !important; font-weight:700 !important;
+}
+div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] *{
+  color:#2b332e !important; font-weight:600 !important;
+}
+[data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label{
+  color:#1c2420 !important; font-weight:600 !important;
+}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{
+  color:#414a44 !important;
+}
+/* 표(데이터프레임·편집표) 글씨와 테두리를 진하게 */
+[data-testid="stDataFrame"] *, [data-testid="stDataEditor"] *{
+  color:#141a17 !important;
+}
+[data-testid="stDataFrame"], [data-testid="stDataEditor"]{
+  border:1px solid var(--line) !important; border-radius:8px;
+}
+[data-testid="stDataFrame"] [role="columnheader"],
+[data-testid="stDataEditor"] [role="columnheader"]{
+  background:#e4eade !important; font-weight:700 !important;
+}
+/* 알림 박스에 색 띠를 넣어 눈에 잘 띄게 */
+div[data-testid="stAlert"]{
+  border-left:5px solid var(--accent) !important; border-radius:8px !important;
+}
+.paseru-sub{ color:#141a17 !important; }
 </style>
 """
 st.markdown(PASERU_CSS, unsafe_allow_html=True)
@@ -516,14 +546,23 @@ def naver_route_url(station, stops, app_name="paseru.origin"):
     return "nmap://route/car?" + "&".join(parts)
 
 
-def google_route_url(station, stops):
-    """구글지도 웹 길찾기 — 앱이 없어도 브라우저에서 바로 열리는 대체 수단.
-    출발·도착은 센터, 중간 지점은 경유지로 넣는다."""
-    org = f"{station['lat']},{station['lng']}"
-    way = "|".join(f"{s['lat']},{s['lng']}" for s in stops)
-    return ("https://www.google.com/maps/dir/?api=1"
-            f"&origin={org}&destination={org}&waypoints={quote(way, safe='|,')}"
-            "&travelmode=driving")
+def naver_intent_url(nmap_url):
+    """안드로이드 크롬은 nmap:// 같은 커스텀 스킴을 막기 때문에 intent:// 형식으로 바꿔준다.
+    (앱이 없으면 플레이스토어로 이동)"""
+    body = nmap_url[len("nmap://"):]
+    return (f"intent://{body}#Intent;scheme=nmap;package=com.nhn.android.nmap;"
+            "S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2F"
+            "details%3Fid%3Dcom.nhn.android.nmap;end")
+
+
+def naver_web_route_url(station, stops):
+    """네이버지도 웹 길찾기 — 앱이 없거나 PC에서 경로를 눈으로 확인할 때 쓰는 대체 수단.
+    (웹은 경유지 지정이 제한적이라 출발지 → 마지막 지점 기준으로 열린다)"""
+    last = stops[-1]
+    q = lambda s: quote(str(s), safe="")
+    return ("https://map.naver.com/p/directions/"
+            f"{station['lng']},{station['lat']},{q(station['name'])},,/"
+            f"{last['lng']},{last['lat']},{q(last['name'])},,/-/car")
 
 
 def naver_route_links(station, legs):
@@ -533,7 +572,7 @@ def naver_route_links(station, legs):
     if not stops:
         return []
     chunks = [stops[i:i + NAVER_MAX_VIA] for i in range(0, len(stops), NAVER_MAX_VIA)]
-    return [(naver_route_url(station, c), google_route_url(station, c), c) for c in chunks]
+    return [(naver_route_url(station, c), naver_web_route_url(station, c), c) for c in chunks]
 
 
 def card_title(step, text):
@@ -1378,31 +1417,41 @@ if "route_results" in st.session_state:
 
                 st.markdown("**📱 내비게이션 — 경유지 포함 전체 경로**")
                 links = naver_route_links(station, rr["legs"])
-                for li, (nurl, gurl, chunk) in enumerate(links, start=1):
+                for li, (nurl, wurl, chunk) in enumerate(links, start=1):
                     seq = " → ".join([station["name"]] + [c["name"] for c in chunk] + [station["name"]])
                     suffix = "" if len(links) == 1 else f" ({li}/{len(links)}구간)"
+                    iurl = naver_intent_url(nurl)
+                    btn = ("display:inline-block;color:#ffffff !important;padding:11px 15px;"
+                           "border-radius:9px;font-weight:700;text-decoration:none;"
+                           "font-size:13.5px;margin:3px 6px 3px 0;")
                     st.markdown(
-                        f'<a href="{nurl}" target="_top" style="display:inline-block;'
-                        'background:#03C75A;color:#ffffff !important;padding:10px 14px;border-radius:8px;'
-                        'font-weight:700;text-decoration:none;font-size:13px;margin:2px 6px 2px 0;">'
-                        f'🧭 네이버지도 앱으로 열기{suffix}</a>'
-                        f'<a href="{gurl}" target="_blank" style="display:inline-block;'
-                        'background:#1a73e8;color:#ffffff !important;padding:10px 14px;border-radius:8px;'
-                        'font-weight:700;text-decoration:none;font-size:13px;margin:2px 0;">'
-                        f'🗺 구글지도로 열기(앱 없어도 됨){suffix}</a>',
+                        f'<a href="{iurl}" target="_top" style="{btn}background:#03C75A;">'
+                        f'📱 휴대폰(안드로이드)에서 경유지 안내{suffix}</a>'
+                        f'<a href="{nurl}" target="_top" style="{btn}background:#0a8f45;">'
+                        f'📱 휴대폰(아이폰)에서 경유지 안내{suffix}</a>'
+                        f'<a href="{wurl}" target="_blank" style="{btn}background:#4a544d;">'
+                        f'💻 PC에서 지도로 보기{suffix}</a>',
                         unsafe_allow_html=True,
                     )
                     st.caption(f"경로: {seq}")
                     with st.expander("링크가 안 열릴 때 (주소 직접 복사)", expanded=False):
-                        st.markdown("**네이버지도 앱 주소** — 복사해서 휴대폰 주소창에 붙여넣기")
+                        st.markdown("**안드로이드 휴대폰용**")
+                        st.code(iurl, language=None)
+                        st.markdown("**아이폰용**")
                         st.code(nurl, language=None)
-                        st.markdown("**구글지도 웹 주소**")
-                        st.code(gurl, language=None)
+                        st.markdown("**경유지 좌표 목록** (다른 내비 앱에 직접 입력할 때)")
+                        st.code("\n".join(
+                            [f"출발  {station['name']}  {station['lat']:.6f}, {station['lng']:.6f}"]
+                            + [f"경유{n}  {c['name']}  {c['lat']:.6f}, {c['lng']:.6f}"
+                               for n, c in enumerate(chunk, start=1)]
+                            + [f"도착  {station['name']}  {station['lat']:.6f}, {station['lng']:.6f}"]
+                        ), language=None)
                 if len(links) > 1:
                     st.caption(f"※ 네이버지도는 경유지를 최대 {NAVER_MAX_VIA}개까지 지원해서 "
                                "구간을 나눴습니다. 한 구간씩 순서대로 눌러 주세요.")
-                st.caption("※ 네이버지도 버튼은 휴대폰에 **네이버지도 앱이 설치**되어 있어야 열립니다"
-                           "(PC·앱 미설치 시 반응 없음). 열리지 않으면 구글지도 버튼을 쓰세요.")
+                st.caption("※ **경유지를 한 번에 안내받는 것은 휴대폰에서만 됩니다** "
+                           "(네이버지도 앱 필요). 안드로이드폰은 첫 번째, 아이폰은 두 번째 버튼을 "
+                           "누르세요. PC에서는 앱을 열 수 없어 세 번째 버튼으로 경로만 확인됩니다.")
 
                 with st.expander("지점별 개별 길안내(카카오맵)", expanded=False):
                     for i, leg in enumerate(rr["legs"], start=1):
@@ -1414,13 +1463,41 @@ if "route_results" in st.session_state:
 
             with col2:
                 m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
-                folium.Marker([station["lat"], station["lng"]], tooltip=station["name"],
-                              icon=folium.Icon(color="red", icon="home")).add_to(m)
-                for i, leg in enumerate(rr["legs"], start=1):
-                    folium.Marker([leg["lat"], leg["lng"]], tooltip=f"{i}. {leg['to']}",
-                                  icon=folium.Icon(color="blue")).add_to(m)
                 if rr["path"]:
                     folium.PolyLine(rr["path"], color="#c23c2c", weight=4, opacity=0.85).add_to(m)
+
+                # 방문 순서를 지도 위에 숫자로 표시 (기본 핀 대신 번호 원)
+                for i, leg in enumerate(rr["legs"], start=1):
+                    folium.Marker(
+                        [leg["lat"], leg["lng"]],
+                        tooltip=f"{i}. {leg['to']}",
+                        icon=folium.DivIcon(
+                            icon_size=(30, 30), icon_anchor=(15, 15),
+                            html=(
+                                '<div style="background:#1f6fb2;color:#ffffff;'
+                                'width:26px;height:26px;border-radius:50%;'
+                                'border:2px solid #ffffff;box-shadow:0 1px 5px rgba(0,0,0,.45);'
+                                'display:flex;align-items:center;justify-content:center;'
+                                'font-family:sans-serif;font-weight:700;font-size:13px;'
+                                f'line-height:1;">{i}</div>'
+                            ),
+                        ),
+                    ).add_to(m)
+
+                # 출발·복귀 지점은 눈에 띄게 빨간 '출발' 표식으로
+                folium.Marker(
+                    [station["lat"], station["lng"]], tooltip=f"출발·복귀: {station['name']}",
+                    icon=folium.DivIcon(
+                        icon_size=(56, 26), icon_anchor=(28, 13),
+                        html=(
+                            '<div style="background:#c23c2c;color:#ffffff;'
+                            'padding:3px 8px;border-radius:13px;border:2px solid #ffffff;'
+                            'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
+                            'font-family:sans-serif;font-weight:700;font-size:12px;'
+                            'line-height:1.2;white-space:nowrap;">🚒 출발</div>'
+                        ),
+                    ),
+                ).add_to(m)
                 st_folium(m, height=350, use_container_width=True, key=f"map_{rr['route_no']}")
 
     if far_points:
