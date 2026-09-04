@@ -162,12 +162,33 @@ def real_leg(a, b, on_call=None):
     return km, mins
 
 
+def nearest_by_straight_line(cur, candidates, k):
+    """직선거리로 가까운 순 k개만 추린다. (실제 API 호출 횟수를 줄이기 위한 1차 필터)
+
+    도로망은 직선거리와 순서가 크게 다르지 않으므로, 가까운 후보 몇 개만
+    실제 도로거리로 확인해도 결과는 거의 동일하면서 API 호출은 크게 줄어든다.
+    """
+    if k <= 0 or k >= len(candidates):
+        return candidates
+    ranked = sorted(
+        candidates,
+        key=lambda p: haversine_km((cur["lat"], cur["lng"]), (p["lat"], p["lng"])),
+    )
+    return ranked[:k]
+
+
 def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
-                 target_min_high, max_routes_cap, basis="distance", on_call=None):
+                 target_min_high, max_routes_cap, basis="distance", on_call=None,
+                 candidate_k=5):
     """points: list of dict(name, address, lat, lng)
     반환: routes(list of list of point dict), unassigned(장거리/미배정)
-    매 단계마다 NCP Directions5 실도로거리(또는 실소요시간)로 다음 방문지를 선택한다.
+
+    mode:
+      "segment"     — 구간당 거리·시간 제한
+      "target_time" — 노선 전체 왕복 목표시간 제한
+      "fixed"       — 노선당 구간 수(max_per_route)를 그대로 채움 (노선 수 = 상한까지)
     basis: "distance"(거리 기준) | "time"(소요시간 기준)
+    candidate_k: 다음 지점 후보를 직선거리로 몇 개까지 좁혀서 실제 API로 확인할지 (0=전수)
     """
     remaining = points[:]
     routes = []
@@ -180,8 +201,9 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
         acc_min = 0.0
 
         while remaining:
-            # 실도로 기준 가장 가까운 다음 지점 선택 (거리 또는 소요시간 기준)
-            legs = [(p, *real_leg(cur, p, on_call)) for p in remaining]
+            # 1차: 직선거리로 후보 좁히기 → 2차: 좁혀진 후보만 실도로 거리/시간 확인
+            candidates = nearest_by_straight_line(cur, remaining, candidate_k)
+            legs = [(p, *real_leg(cur, p, on_call)) for p in candidates]
             legs.sort(key=(lambda t: t[2]) if basis == "time" else (lambda t: t[1]))
             nxt, leg_km, leg_min = legs[0]
 
@@ -190,7 +212,10 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
             #  어떤 노선도 못 만들고 전부 '장거리'로 빠지는 문제를 막기 위함)
             first_stop = not route
 
-            if mode == "segment":
+            if mode == "fixed":
+                if len(route) >= max_per_route:
+                    break
+            elif mode == "segment":
                 if not first_stop and (leg_km > seg_max_km or leg_min > seg_max_min):
                     break
                 if len(route) >= max_per_route:
@@ -223,10 +248,25 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
     return routes, remaining
 
 
-def separate_long_distance(points, station, threshold_km, on_call=None):
+def separate_long_distance(points, station, threshold_km, on_call=None, save_calls=True):
+    """소방서에서 실도로거리가 기준을 넘는 대상을 분리한다.
+
+    save_calls=True면 직선거리 추정값이 기준에서 충분히 멀리 떨어진(애매하지 않은)
+    대상은 API를 호출하지 않고 추정값으로 판정해 호출 횟수를 줄인다.
+    """
     normal, far = [], []
     for p in points:
-        km, _ = real_leg(station, p, on_call)
+        straight = haversine_km((station["lat"], station["lng"]), (p["lat"], p["lng"]))
+        est = straight * ROAD_FACTOR
+
+        if save_calls and est < threshold_km * 0.7:
+            normal.append(p)          # 확실히 가까움 — API 호출 생략
+            continue
+        if save_calls and est > threshold_km * 1.5:
+            far.append({**p, "도로거리_km": round(est, 1)})  # 확실히 멂 — 추정값 사용
+            continue
+
+        km, _ = real_leg(station, p, on_call)   # 애매한 구간만 실제 도로거리로 확인
         if km > threshold_km:
             far.append({**p, "도로거리_km": round(km, 1)})
         else:
@@ -538,19 +578,28 @@ with st.container(border=True):
         st.caption(f"목표 {target_min}분/노선 기준으로 자동 편성합니다 (노선 내 대상 수 제한 없음).")
     else:
         sub_label("가. 기준 방식")
-        mode_label = st.pills("기준 방식", ["구간별 제한", "노선 전체 목표시간"],
-                              default="구간별 제한", label_visibility="collapsed")
+        mode_label = st.pills("기준 방식",
+                              ["노선 수·구간 수 지정", "구간별 제한", "노선 전체 목표시간"],
+                              default="노선 수·구간 수 지정", label_visibility="collapsed")
         if not mode_label:
-            mode_label = "구간별 제한"
-        mode = "segment" if mode_label == "구간별 제한" else "target_time"
+            mode_label = "노선 수·구간 수 지정"
+        mode = {"노선 수·구간 수 지정": "fixed", "구간별 제한": "segment",
+                "노선 전체 목표시간": "target_time"}[mode_label]
 
         cc1, cc2 = st.columns(2)
         with cc1:
-            max_per_route = st.number_input("노선 내 구간 수(방문지 수)", min_value=1, max_value=30, value=4)
+            max_per_route = st.number_input("노선 내 구간 수(방문지 수)", min_value=1, max_value=30, value=5)
         with cc2:
-            max_routes_cap = st.number_input("총 노선 수 상한(0 = 전수 자동배분)", min_value=0, value=0)
+            max_routes_cap = st.number_input("총 노선 수 상한(0 = 전수 자동배분)", min_value=0, value=6)
 
-        if mode == "segment":
+        if mode == "fixed":
+            st.caption(f"노선당 {max_per_route}개소씩 최대 {max_routes_cap or '제한 없이'}개 노선으로 나눕니다. "
+                       "거리·시간 제한 없이 개수대로 나눈 뒤, 아래 목표시간을 넘는 노선은 표시해 드립니다.")
+            target_min = st.number_input("참고용 목표 왕복시간(분) — 초과 노선을 표시만 합니다",
+                                         min_value=10, value=30)
+            target_min_low = target_min_high = None
+            seg_max_km = seg_max_min = None
+        elif mode == "segment":
             sc1, sc2 = st.columns(2)
             with sc1:
                 seg_max_km = st.number_input("구간당 최대 거리(km)", min_value=1.0, value=7.0, step=0.5)
@@ -584,6 +633,18 @@ with st.container(border=True):
 
     sub_label("라. 장거리 분리 기준")
     long_threshold = st.number_input("소방서 실제 도로거리(km) 초과 시 별도 표시", min_value=1.0, value=15.0)
+
+    sub_label("마. API 호출 절약 (요금·시간 절감)")
+    save_calls = st.checkbox(
+        "직선거리로 후보를 먼저 좁힌 뒤, 가까운 후보만 실제 도로거리로 확인 (권장)", value=True,
+        help="끄면 매 단계마다 남은 모든 대상을 실제 도로거리로 확인합니다. "
+             "정확도는 거의 같지만 호출 횟수가 대상 수의 제곱으로 늘어납니다.",
+    )
+    if save_calls:
+        candidate_k = st.slider("실제 도로거리로 확인할 후보 수", 3, 12, 5,
+                                help="숫자가 클수록 정확하지만 호출이 늘어납니다. 5개면 대부분 충분합니다.")
+    else:
+        candidate_k = 0
 
 st.write("")
 
@@ -655,6 +716,18 @@ if df is not None and len(df):
             "파일에 이미 위·경도가 있으면 재지오코딩 없이 사용", value=bool(lat_col_guess and lng_col_guess)
         )
 
+        # 실행 전 예상 API 호출량 안내 (요금·시간 가늠용)
+        n_targets = len(df)
+        if candidate_k:
+            est_calls = n_targets * candidate_k + n_targets  # 후보 확인 + 장거리 판정(일부)
+        else:
+            est_calls = n_targets * (n_targets + 1) // 2 + n_targets
+        est_sec = int(est_calls * 0.25)
+        st.info(f"대상 {n_targets}개소 · 예상 NCP 호출 약 **{est_calls:,}회** "
+                f"(예상 소요 약 {est_sec // 60}분 {est_sec % 60}초). "
+                + ("‘API 호출 절약’이 켜져 있습니다." if candidate_k
+                   else "⚠ ‘API 호출 절약’이 꺼져 있어 호출량이 많습니다."))
+
         run = st.button("🚀 노선 생성 (실제 지오코딩 · 실도로거리 계산)", type="primary",
                         disabled=not has_keys(), use_container_width=True)
 
@@ -701,7 +774,9 @@ if df is not None and len(df):
             long_progress.progress(min(call_counter["n"] / max(total_hint, 1), 1.0),
                                    text=f"실제 도로거리 API 호출 중... ({call_counter['n']}건)")
 
-        normal_points, far_points = separate_long_distance(points, station, long_threshold, on_call=bump)
+        normal_points, far_points = separate_long_distance(
+            points, station, long_threshold, on_call=bump, save_calls=bool(candidate_k)
+        )
         long_progress.empty()
 
         # 4) 노선 편성
@@ -716,6 +791,7 @@ if df is not None and len(df):
             normal_points, station, mode, max_per_route,
             seg_max_km, seg_max_min, target_min_high,
             max_routes_cap or None, basis=basis, on_call=bump_build,
+            candidate_k=candidate_k,
         )
         build_progress.empty()
 
@@ -791,6 +867,7 @@ if df is not None and len(df):
             "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
             "period": f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)",
             "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
+            "target_min": target_min,
         }
 
 # ----------------------------------------------------------------------------
@@ -945,10 +1022,23 @@ if "route_results" in st.session_state:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+    target_min_ref = meta.get("target_min")
+    if target_min_ref:
+        over = [r for r in route_results if r["total_min"] > target_min_ref]
+        if over:
+            st.warning(
+                f"⏱ 목표 {target_min_ref}분을 넘는 노선이 {len(over)}개 있습니다 "
+                f"(노선 {', '.join(str(r['route_no']) for r in over)}). "
+                "노선당 구간 수를 줄이거나 목표시간을 늘려 다시 편성해 보세요."
+            )
+        else:
+            st.success(f"⏱ 모든 노선이 목표 {target_min_ref}분 이내입니다.")
+
     for rr in route_results:
         team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
+        over_mark = " ⏱초과" if target_min_ref and rr["total_min"] > target_min_ref else ""
         head = (f"노선 {rr['route_no']}" + (f" · {team_name}" if team_name else "") +
-                f" — {len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분")
+                f" — {len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분{over_mark}")
         with st.expander(head, expanded=True):
             col1, col2 = st.columns([1, 1])
 
