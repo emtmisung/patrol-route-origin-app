@@ -985,6 +985,15 @@ if not st.session_state.get("paseru_authenticated", False):
             entered_password = st.text_input("비밀번호", type="password", placeholder="비밀번호를 입력하세요")
             login_submitted = st.form_submit_button("앱 시작하기", type="primary", use_container_width=True)
 
+        st.markdown(
+            '<div style="margin-top:0.45rem;text-align:center;color:#344054;font-size:0.88rem;">'
+            '비밀번호를 잊으셨나요? '
+            '<a href="mailto:emtmisung@gmail.com?subject=%ED%8C%8C%EC%84%B8%EB%A3%A8%20%EC%98%A4%EB%A6%AC%EC%A7%84%20%EB%B9%84%EB%B0%80%EB%B2%88%ED%98%B8%20%EB%AC%B8%EC%9D%98" '
+            'style="color:#a33a3f;font-weight:700;text-decoration:none;">관리자에게 문의</a>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
         if login_submitted:
             if not APP_PASSWORD:
                 st.error("관리자가 Streamlit Secrets에 APP_PASSWORD를 먼저 등록해야 합니다.")
