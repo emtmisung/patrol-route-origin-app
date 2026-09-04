@@ -5,6 +5,7 @@ import math
 import re
 import zipfile
 from datetime import datetime, date, time as dtime
+from datetime import datetime, date, time as dtime, timedelta
 from urllib.parse import quote
 
 import folium
@@ -29,6 +30,7 @@ AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
 
 SAMPLE_CSV = "seongju_patrol_coordinates_updated_modified.csv"
+SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
 
 
 def ncp_headers():
@@ -606,14 +608,19 @@ def make_qr_png(data):
 
 
 def build_qr_zip(station, route_results):
+    """모든 노선의 카카오맵 QR PNG와 경로 목록을 ZIP으로 묶는다."""
     """모든 노선의 카카오맵 QR PNG와 경로 목록 엑셀을 ZIP으로 묶는다."""
     buffer = io.BytesIO()
+    route_lines = []
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for rr in route_results:
             links = kakao_route_links(station, rr["legs"])
             for li, (url, origin, destinations) in enumerate(links, start=1):
                 suffix = "" if len(links) == 1 else f"_구간{li}"
                 zf.writestr(f"노선_{rr['route_no']}{suffix}_QR.png", make_qr_png(url))
+                seq = " → ".join([origin["name"]] + [p["name"] for p in destinations])
+                route_lines.append(f"노선 {rr['route_no']}{suffix}: {seq}\n{url}\n")
+        zf.writestr("노선별_경로와_링크.txt", "\n".join(route_lines).encode("utf-8-sig"))
         zf.writestr("노선별_경로와_링크.xlsx", build_route_links_excel(station, route_results))
     return buffer.getvalue()
 
@@ -676,6 +683,75 @@ def build_route_links_excel(station, route_results):
         ws.row_dimensions[row_no].height = 42
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def build_upload_template():
+    """대상 목록을 일정한 열 이름으로 작성할 수 있는 빈 엑셀 양식."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "대상목록"
+    ws.sheet_view.showGridLines = False
+
+    headers = ["연번", "대상명", "주소", "비고", "위도(선택)", "경도(선택)"]
+    ws.append(headers)
+
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    required_fill = PatternFill("solid", fgColor="FFF2CC")
+    thin = Side(style="thin", color="D9D9D9")
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # 첫 입력행은 비워두되 필수 입력칸을 연한 노랑으로 표시한다.
+    for row_no in range(2, 102):
+        for col_no in range(1, 7):
+            cell = ws.cell(row=row_no, column=col_no)
+            cell.border = Border(bottom=thin)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        ws.cell(row=row_no, column=2).fill = required_fill
+        ws.cell(row=row_no, column=3).fill = required_fill
+
+    widths = {"A": 9, "B": 28, "C": 52, "D": 28, "E": 16, "F": 16}
+    for column, width in widths.items():
+        ws.column_dimensions[column].width = width
+    ws.row_dimensions[1].height = 27
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = "A1:F101"
+
+    guide = wb.create_sheet("작성안내")
+    guide.sheet_view.showGridLines = False
+    guide.append(["항목", "필수 여부", "작성 방법"])
+    guide_rows = [
+        ["대상명", "필수", "시설명 또는 점검 대상명을 입력합니다."],
+        ["주소", "필수", "지오코딩할 도로명주소 또는 지번주소를 입력합니다."],
+        ["연번", "선택", "자동으로 표시됩니다. 직접 수정해도 됩니다."],
+        ["비고", "선택", "노선 편성에 필요한 일반 참고사항만 입력합니다."],
+        ["위도·경도", "선택", "이미 검증한 좌표가 있을 때만 입력합니다. 없으면 비워두세요."],
+        ["개인정보", "입력 금지", "성명, 전화번호, 주민등록번호, 검사결과 등은 입력하지 않습니다."],
+    ]
+    for row in guide_rows:
+        guide.append(row)
+    for cell in guide[1]:
+        cell.fill = header_fill
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for row in guide.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.border = Border(bottom=thin)
+    guide.column_dimensions["A"].width = 18
+    guide.column_dimensions["B"].width = 14
+    guide.column_dimensions["C"].width = 72
+    guide.freeze_panes = "A2"
 
     buffer = io.BytesIO()
     wb.save(buffer)
@@ -878,6 +954,108 @@ if "period_start" not in st.session_state:
 
 with st.container(border=True):
     card_title(2, "순찰 기간 · 순찰 차량")
+with st.container(border=True):
+    if purpose == "inspect":
+        card_title(2, "예방검사 일정")
+        st.caption("대상 파일에는 대상명과 주소만 준비하면 됩니다. 공통 검사 조건은 여기에서 한 번만 설정합니다.")
+
+        ic1, ic2 = st.columns(2)
+        with ic1:
+            period_start = st.date_input("검사 시작일", key="period_start")
+        with ic2:
+            period_end = st.date_input("검사 완료기한", key="period_end")
+
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+        inspect_weekdays = st.multiselect(
+            "검사 가능 요일",
+            weekday_names,
+            default=["월", "화", "수", "목", "금"],
+            help="실제로 예방검사를 실시할 요일만 선택하세요.",
+        )
+
+        ic3, ic4, ic5 = st.columns(3)
+        with ic3:
+            inspect_teams = st.number_input("검사팀 수", min_value=1, max_value=30, value=1)
+        with ic4:
+            inspect_daily_hours = st.number_input(
+                "팀당 하루 검사 가능시간", min_value=1.0, max_value=12.0, value=6.0, step=0.5,
+            )
+        with ic5:
+            inspect_minutes = st.number_input(
+                "대상당 평균 검사시간(분)", min_value=5, max_value=480, value=40, step=5,
+            )
+
+        excluded_text = st.text_input(
+            "검사 제외일(선택)",
+            placeholder="예) 2026-09-21, 2026-10-03",
+            help="공휴일·훈련일 등 검사하지 않는 날짜를 쉼표로 구분해 입력하세요.",
+        )
+        inspect_excluded_dates = set()
+        invalid_excluded_dates = []
+        for value in [v.strip() for v in excluded_text.split(",") if v.strip()]:
+            try:
+                inspect_excluded_dates.add(datetime.strptime(value, "%Y-%m-%d").date())
+            except ValueError:
+                invalid_excluded_dates.append(value)
+        if invalid_excluded_dates:
+            st.warning("제외일은 YYYY-MM-DD 형식으로 입력해주세요: " + ", ".join(invalid_excluded_dates))
+
+        start_dt = datetime.combine(period_start, dtime(9, 0))
+        end_dt = datetime.combine(period_end, dtime(18, 0))
+        selected_weekdays = {i for i, name in enumerate(weekday_names) if name in inspect_weekdays}
+        inspect_dates = []
+        if period_end < period_start:
+            st.warning("⚠ 검사 완료기한이 시작일보다 빠릅니다. 기간을 확인해주세요.")
+        elif not selected_weekdays:
+            st.warning("⚠ 검사 가능 요일을 하나 이상 선택해주세요.")
+        else:
+            current_date = period_start
+            while current_date <= period_end:
+                if current_date.weekday() in selected_weekdays and current_date not in inspect_excluded_dates:
+                    inspect_dates.append(current_date)
+                current_date += timedelta(days=1)
+
+        period_days = max(1, len(inspect_dates))
+        st.caption(
+            f"실제 검사 가능일 {len(inspect_dates)}일 · 전체 가용 팀 일수 "
+            f"{len(inspect_dates) * int(inspect_teams)}팀 일"
+        )
+        vehicle = st.selectbox("검사 차량", ["소방차", "구급차", "행정차", "개인차"], index=2)
+    else:
+        card_title(2, "순찰 기간 · 순찰 차량")
+        inspect_weekdays = []
+        inspect_teams = 1
+        inspect_daily_hours = 6.0
+        inspect_minutes = 40
+        inspect_dates = []
+
+        if st.button("🎑 추석 특별경계근무 자동입력 (9.23 18:00 ~ 9.28 09:00, 5일)", type="secondary"):
+            st.session_state["period_start"] = date(2026, 9, 23)
+            st.session_state["period_start_time"] = dtime(18, 0)
+            st.session_state["period_end"] = date(2026, 9, 28)
+            st.session_state["period_end_time"] = dtime(9, 0)
+            st.rerun()
+
+        dc1, dc2, dc3, dc4 = st.columns(4)
+        with dc1:
+            period_start = st.date_input("시작일", key="period_start")
+        with dc2:
+            period_start_time = st.time_input("시작 시각", key="period_start_time")
+        with dc3:
+            period_end = st.date_input("종료일", key="period_end")
+        with dc4:
+            period_end_time = st.time_input("종료 시각", key="period_end_time")
+
+        start_dt = datetime.combine(period_start, period_start_time)
+        end_dt = datetime.combine(period_end, period_end_time)
+        if end_dt <= start_dt:
+            st.warning("⚠ 종료 일시가 시작 일시보다 빠릅니다. 기간을 확인해주세요.")
+            period_days = 1
+        else:
+            period_days = max(1, math.ceil((end_dt - start_dt).total_seconds() / 86400))
+            st.caption(f"총 {period_days}일간")
+
+        vehicle = st.selectbox("순찰 차량", ["소방차", "구급차", "행정차", "개인차"], index=0)
 
     if st.button("🎑 추석 특별경계근무 자동입력 (9.23 18:00 ~ 9.28 09:00, 5일)", type="secondary"):
         st.session_state["period_start"] = date(2026, 9, 23)
@@ -1012,8 +1190,26 @@ with st.container(border=True):
     st.caption("엑셀(xlsx/xls) · CSV · 아래아한글(hwpx) 표를 올리면 자동으로 인식합니다. "
                "권장 양식: 연번 / 주소지(이름) / 비고 / 정제_주소 / 위도 / 경도")
     uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
+with st.container(border=True):
+    card_title(4, "대상 목록 업로드")
+    template_col, template_note_col = st.columns([1, 2])
+    with template_col:
+        st.download_button(
+            "📥 대상 목록 빈 양식(xlsx)",
+            data=build_upload_template(),
+            file_name="파세루_대상목록_빈양식.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    with template_note_col:
+        st.caption("양식을 내려받아 노란색 `대상명·주소` 칸만 작성하면 됩니다. "
+                   "성명·전화번호·검사결과 등 개인정보와 민감정보는 입력하지 마세요.")
+    st.caption("작성한 엑셀 또는 기존 xlsx/xls·CSV·아래아한글(hwpx) 표를 올리면 자동으로 인식합니다.")
+    uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
                                 label_visibility="collapsed")
     use_sample = st.checkbox("🧪 심사용 예시 30건 불러오기 (성주읍·월항면 마을회관 추석 특별경계근무 실데이터)",
+                             value=uploaded is None)
+    use_sample = st.checkbox("🧪 심사용 예시 20건 불러오기 (성주군 마을회관 특별경계근무 실데이터)",
                              value=uploaded is None)
 
 df = None
@@ -1029,6 +1225,8 @@ if uploaded is not None:
         df = pd.read_excel(uploaded)
 elif use_sample:
     df = pd.read_csv(SAMPLE_CSV)
+elif use_sample:
+    df = pd.read_excel(SAMPLE_XLSX)
 
 # 출발지(소방서·센터) 자신이 순찰 대상 목록에 섞여 있으면 제외한다.
 # (업로드 파일 첫 줄에 소방서를 넣어두는 경우가 많아, 그대로 두면 소방서가 경유지로 잡힌다)
@@ -1117,6 +1315,39 @@ if df is not None and len(df):
 
 
         n_targets = len(df)
+        st.caption(f"1단계에서 좌표를 먼저 확정하고, 2단계에서 그 좌표로 노선을 만듭니다. "
+        n_targets = len(df)
+        if purpose == "inspect":
+            available_team_days = len(inspect_dates) * int(inspect_teams)
+            daily_target = math.ceil(n_targets / available_team_days) if available_team_days else 0
+            inspection_only_capacity = math.floor(float(inspect_daily_hours) * 60 / int(inspect_minutes))
+
+            st.markdown("**📅 예방검사 계획 자동 계산**")
+            pc1, pc2, pc3, pc4 = st.columns(4)
+            pc1.metric("전체 대상", f"{n_targets}개소")
+            pc2.metric("검사 가능일", f"{len(inspect_dates)}일")
+            pc3.metric("전체 가용량", f"{available_team_days}팀 일")
+            pc4.metric("팀당 하루 권장량", f"{daily_target}개소" if daily_target else "계산 불가")
+
+            if not available_team_days:
+                st.error("검사기간과 검사 가능 요일을 확인해주세요. 현재 배정 가능한 날짜가 없습니다.")
+            elif daily_target > inspection_only_capacity:
+                st.warning(
+                    f"현재 조건에서는 팀당 하루 최소 {daily_target}개소가 필요하지만, "
+                    f"검사시간만 계산한 이론상 최대량은 {inspection_only_capacity}개소입니다. "
+                    "이동시간까지 고려하면 기한 내 완료가 어려울 수 있으므로 팀 수·검사일·하루 가능시간을 늘려주세요."
+                )
+            else:
+                st.success(
+                    f"팀당 하루 평균 {n_targets / available_team_days:.1f}개소, "
+                    f"권장 {daily_target}개소씩 배정하면 기한 내 검사가 가능합니다. "
+                    "실제 노선 생성 시 이동시간을 함께 확인하세요."
+                )
+            st.caption(
+                "이 계산에는 개인정보가 필요하지 않습니다. 대상 파일은 대상명과 주소만 사용하고 "
+                "담당자 이름·전화번호·검사결과는 업로드하지 마세요."
+            )
+
         st.caption(f"1단계에서 좌표를 먼저 확정하고, 2단계에서 그 좌표로 노선을 만듭니다. "
                    f"좌표 찾기에는 약 {n_targets}~{n_targets * 3}회의 호출이 듭니다.")
 
@@ -1331,6 +1562,15 @@ if df is not None and len(df):
         elif purpose == "other" and other_teams:
             rounds_needed = math.ceil(len(routes) / other_teams) if routes else 0
             team_info = f" · 팀 {other_teams}개 기준 팀당 {rounds_needed}회"
+        elif purpose == "other" and other_teams:
+            rounds_needed = math.ceil(len(routes) / other_teams) if routes else 0
+            team_info = f" · 팀 {other_teams}개 기준 팀당 {rounds_needed}회"
+        elif purpose == "inspect":
+            available_team_days = len(inspect_dates) * int(inspect_teams)
+            assigned_targets = sum(len(route) for route in routes)
+            daily_target = math.ceil(assigned_targets / available_team_days) if available_team_days else 0
+            team_info = (f" · 검사 가능일 {len(inspect_dates)}일 · {inspect_teams}팀"
+                         + (f" · 팀당 하루 최소 {daily_target}개소" if daily_target else ""))
         elif purpose == "guard" and guard_repeat_label == "매일 같은 코스 반복" and guard_rounds:
             total_runs = int(guard_rounds.replace("회", "")) * period_days
             team_info = f" · 매일 같은 코스로 하루 {guard_rounds} 반복({period_days}일간 총 {total_runs}회)"
@@ -1390,6 +1630,13 @@ if df is not None and len(df):
             "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
             "period": f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)",
             "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
+        st.session_state["meta"] = {
+            "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
+            "period": (f"{period_start:%Y-%m-%d} ~ {period_end:%Y-%m-%d} "
+                       f"(검사 가능일 {len(inspect_dates)}일)" if purpose == "inspect" else
+                       f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)"),
+            "period_label": "검사기간" if purpose == "inspect" else "순찰기간",
+            "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
             "target_min": target_min,
         }
 
@@ -1411,6 +1658,8 @@ if "route_results" in st.session_state:
     if meta:
         st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')} · "
                    f"순찰기간 {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
+        st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')} · "
+                   f"{meta.get('period_label', '순찰기간')} {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
                    + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
 
     m1, m2, m3, m4 = st.columns(4)
@@ -1549,6 +1798,7 @@ if "route_results" in st.session_state:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+    qr_all_col, print_all_col = st.columns(2)
     links_col, qr_all_col, print_all_col = st.columns(3)
     with links_col:
         st.download_button(
