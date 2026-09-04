@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 import folium
 import pandas as pd
+import qrcode
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
@@ -540,6 +541,66 @@ def kakao_url(name, lat, lng):
     """카카오맵 길안내 링크 (공백·괄호가 있어도 깨지지 않도록 인코딩)."""
     return ("https://map.kakao.com/link/to/"
             f"{quote(str(name), safe='')},{lat},{lng}")
+
+
+KAKAO_MAX_VIA = 5  # 카카오맵 자동차 길찾기 URL이 지원하는 경유지 최대 개수
+
+
+def kakao_route_url(origin, destinations):
+    """카카오맵 자동차 길찾기 링크를 만든다.
+
+    origin은 출발지, destinations의 마지막 항목은 목적지이며 그 앞 항목은
+    경유지로 전달된다. destinations는 최대 6개(경유지 5 + 목적지)다.
+    """
+    if not destinations:
+        return ""
+
+    def place(p):
+        name = quote(str(p["name"]), safe="")
+        return f"{name},{float(p['lat']):.7f},{float(p['lng']):.7f}"
+
+    points = [origin] + list(destinations)
+    return "https://map.kakao.com/link/by/car/" + "/".join(place(p) for p in points)
+
+
+def kakao_route_links(station, legs):
+    """소방서 → 경유지 순서 → 소방서로 돌아오는 카카오맵 링크 목록.
+
+    경유지가 5개를 넘는 긴 노선은 앞 구간의 마지막 목적지를 다음 구간의
+    출발지로 이어서 분할한다.
+    반환: [(URL, 출발지, 구간 목적지 목록), ...]
+    """
+    stops = [{"name": lg["to"], "lat": lg["lat"], "lng": lg["lng"]} for lg in legs]
+    if not stops:
+        return []
+
+    remaining = stops + [station]
+    origin = station
+    links = []
+    max_destinations = KAKAO_MAX_VIA + 1
+    while remaining:
+        destinations = remaining[:max_destinations]
+        links.append((kakao_route_url(origin, destinations), origin, destinations))
+        remaining = remaining[max_destinations:]
+        if remaining:
+            origin = destinations[-1]
+    return links
+
+
+def make_qr_png(data):
+    """링크를 휴대폰으로 넘길 수 있는 QR코드 PNG 바이트로 만든다."""
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=4,
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 NAVER_MAX_VIA = 5   # 네이버지도 URL Scheme이 지원하는 경유지 최대 개수
@@ -1466,13 +1527,60 @@ if "route_results" in st.session_state:
                            "(네이버지도 앱 필요). 안드로이드폰은 첫 번째, 아이폰은 두 번째 버튼을 "
                            "누르세요. PC에서는 앱을 열 수 없어 세 번째 버튼으로 경로만 확인됩니다.")
 
-                with st.expander("지점별 개별 길안내(카카오맵)", expanded=False):
+                st.markdown("**🟨 카카오맵 — 전체 순찰코스와 QR코드**")
+                kakao_links = kakao_route_links(station, rr["legs"])
+                for li, (kurl, origin, destinations) in enumerate(kakao_links, start=1):
+                    suffix = "" if len(kakao_links) == 1 else f" ({li}/{len(kakao_links)}구간)"
+                    seq = " → ".join([origin["name"]] + [p["name"] for p in destinations])
+                    qr_png = make_qr_png(kurl)
+
+                    guide_col, qr_col = st.columns([1.35, 1])
+                    with guide_col:
+                        st.link_button(
+                            f"🚗 카카오맵 전체 코스 길안내{suffix}",
+                            kurl,
+                            use_container_width=True,
+                        )
+                    with qr_col:
+                        qr_box = (st.popover(f"📱 QR코드 보기{suffix}", use_container_width=True)
+                                  if hasattr(st, "popover")
+                                  else st.expander(f"📱 QR코드 보기{suffix}"))
+                        with qr_box:
+                            st.image(qr_png, caption="휴대폰 카메라로 스캔하세요.", width=260)
+                            st.download_button(
+                                "QR코드 이미지 저장",
+                                data=qr_png,
+                                file_name=f"노선_{rr['route_no']}_카카오맵_QR_{li}.png",
+                                mime="image/png",
+                                key=f"kakao_qr_{rr['route_no']}_{li}",
+                                use_container_width=True,
+                            )
+                    st.caption(f"경로: {seq}")
+
+                if len(kakao_links) > 1:
+                    st.caption(
+                        f"※ 카카오맵은 경유지를 한 구간에 최대 {KAKAO_MAX_VIA}개까지 지원하므로 "
+                        "긴 노선은 이어지는 구간으로 나눴습니다. 현장에서 순서대로 열어 주세요."
+                    )
+                else:
+                    st.caption(
+                        "※ 소방서를 출발지와 최종 목적지로, 순찰 대상을 경유지 순서대로 "
+                        "입력한 카카오맵 링크입니다. QR을 스캔하면 같은 코스가 열립니다."
+                    )
+
+                with st.expander("지점별 개별 길안내(카카오맵) — 예비용", expanded=False):
                     for i, leg in enumerate(rr["legs"], start=1):
                         st.markdown(
                             f"- [{i}. {leg['to']} 길안내]({kakao_url(leg['to'], leg['lat'], leg['lng'])})"
                         )
-                    st.caption("카카오맵은 링크로 경유지를 한 번에 지정하는 기능이 없어 "
-                               "지점별 안내만 제공됩니다.")
+                    st.markdown(
+                        f"- [🚒 {station['name']} 귀소 길안내]"
+                        f"({kakao_url(station['name'], station['lat'], station['lng'])})"
+                    )
+                    st.caption(
+                        "전체 코스가 특정 휴대폰에서 열리지 않을 때 사용하세요. 각 버튼은 "
+                        "현재 위치에서 선택한 다음 지점까지 안내합니다."
+                    )
 
             with col2:
                 m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
