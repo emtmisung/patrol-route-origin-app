@@ -426,11 +426,13 @@ PASERU_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Noto+Serif+KR:wght@600;700&family=IBM+Plex+Mono:wght@500;700&display=swap');
 
 :root{
-  --accent:#dc2626; --accent-hover:#b91c1c; --accent-soft:#fee2e2;
-  --line:#d9dee4; --surface:#ffffff; --bg:#f3f5f7; --ink:#141a17; --muted:#414a44;
+  --accent:#a33a3f; --accent-button:#b8464b; --accent-hover:#8f3035; --accent-soft:#f7e9ea;
+  --navy:#17263a; --ink:#344054; --muted:#667085;
+  --line:#cbd3dd; --divider:#d8dee7; --surface:#ffffff; --bg:#f7f8fa;
+  --focus:#d8898d;
   color-scheme: light;   /* 휴대폰 다크모드에서도 밝은 화면으로 고정 */
 }
-.stApp{ background: var(--bg); color: var(--ink); }
+.stApp{ background:var(--bg); color:var(--ink); font-size:14px; line-height:1.55; }
 
 /* 휴대폰 다크모드에서 '흰 배경 + 흰 글씨'가 되는 문제를 막기 위해
    본문 글자색을 어두운 색으로 명시적으로 고정한다. */
@@ -438,7 +440,7 @@ PASERU_CSS = """
 .stMarkdown, .stMarkdown *, [data-testid="stWidgetLabel"] *,
 [data-testid="stMetricLabel"] *, [data-testid="stMetricValue"],
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{
-  color: var(--ink);
+  color:var(--ink);
 }
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *,
 [data-testid="stMetricLabel"] *{ color: var(--muted) !important; }
@@ -446,14 +448,15 @@ PASERU_CSS = """
 /* 알림 박스(노란색·파란색 등) 안 글씨도 항상 검정 계열로 */
 div[data-testid="stAlert"], div[data-testid="stAlert"] *,
 div[data-testid="stNotification"], div[data-testid="stNotification"] *{
-  color:#1c2420 !important;
+  color:var(--ink) !important;
 }
 
 /* 입력창·표를 밝은 배경 + 어두운 글씨로 고정 */
 input, textarea, select,
 [data-baseweb="input"] input, [data-baseweb="base-input"] input,
 [data-baseweb="select"] div{
-  background-color:#ffffff !important; color:#1c2420 !important;
+  background-color:#ffffff !important; color:var(--ink) !important;
+  border-color:#aab4c1 !important;
 }
 [data-testid="stDataFrame"], [data-testid="stDataEditor"],
 [data-testid="stTable"]{ background:#ffffff !important; }
@@ -462,49 +465,54 @@ html, body, [class*="css"], .stMarkdown, .stTextInput, .stNumberInput{
   font-family:'Noto Sans KR', -apple-system, 'Malgun Gothic', sans-serif;
 }
 h1, h2, h3, h4, h5, h6{
-  font-family:'Noto Serif KR', serif !important; color: var(--ink) !important; font-weight:700 !important;
+  font-family:'Noto Serif KR', serif !important; color:var(--navy) !important; font-weight:700 !important;
 }
+h1{ font-size:32px !important; }
+h2{ font-size:24px !important; }
+h3{ font-size:20px !important; }
 .block-container{ padding-top: 2.2rem; max-width: 1180px; }
 
 /* ---- 카드 컨테이너(border=True) ---- */
 div[data-testid="stVerticalBlockBorderWrapper"]{
   background: var(--surface);
   border-radius: 14px !important;
-  border: 1px solid var(--line) !important;
-  box-shadow: 0 1px 2px rgba(20,26,30,.05), 0 10px 26px -14px rgba(20,26,30,.18);
-  padding: 10px 16px 14px;
-  margin-bottom: 6px;
+  border:1px solid var(--line) !important;
+  border-left:4px solid var(--accent) !important;
+  box-shadow:0 2px 10px rgba(23,38,58,.06);
+  padding:12px 18px 16px;
+  margin-bottom:8px;
 }
 
 /* ---- 카드 제목 + 번호 뱃지 ---- */
 .paseru-card-title{
   display:flex; align-items:center; gap:9px;
-  font-family:'Noto Serif KR', serif; font-size:17px; font-weight:700; color:var(--ink);
+  font-family:'Noto Serif KR', serif; font-size:18px; font-weight:700; color:var(--navy);
   margin: 2px 0 10px;
 }
 .paseru-step{
   display:inline-flex; align-items:center; justify-content:center;
   width:23px; height:23px; border-radius:50%;
-  background:var(--accent); color:#fff;
+  background:var(--accent); color:#fff !important;
   font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:700; flex:none;
 }
-.paseru-sub{ font-weight:700; font-size:13.5px; color:var(--ink); margin:14px 0 6px; }
+.paseru-sub{ font-weight:650; font-size:14px; color:#22324a; margin:14px 0 6px; }
 .paseru-eyebrow{
   font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:.08em;
   text-transform:uppercase; color:var(--accent); font-weight:700; margin-bottom:2px;
 }
 
-/* ---- pills(칩) : 선택 시 브랜드 레드로 채움 ---- */
+/* ---- 선택 칩: 미선택도 선명한 테두리, 선택 시 차분한 딥 레드 ---- */
 button[data-variant="pills"]{
   border-radius: 999px !important;
   border: 1px solid var(--line) !important;
-  background: #e9ede6 !important;
+  background:#f4f6f8 !important;
   color: var(--ink) !important;
-  font-weight: 600 !important;
+  border-color:#aab4c1 !important;
+  font-weight:600 !important;
   padding: 0.42em 1.05em !important;
   transition: background .12s, border-color .12s, color .12s;
 }
-button[data-variant="pills"]:hover{ border-color: var(--accent) !important; }
+button[data-variant="pills"]:hover{ background:#f7e9ea !important; border-color:var(--accent) !important; }
 button[data-variant="pills"][data-selected="true"],
 button[data-variant="pills"][aria-checked="true"],
 button[data-variant="pills"][aria-pressed="true"]{
@@ -512,7 +520,7 @@ button[data-variant="pills"][aria-pressed="true"]{
   border-color: var(--accent) !important;
   color: #ffffff !important;
   font-weight: 700 !important;
-  box-shadow: 0 4px 12px -6px rgba(220,38,38,.55);
+  box-shadow:0 4px 12px -7px rgba(163,58,63,.42);
 }
 button[data-variant="pills"][data-selected="true"] *,
 button[data-variant="pills"][aria-checked="true"] *,
@@ -521,52 +529,58 @@ div[data-testid="stButtonGroup"]{ gap: 8px !important; }
 
 /* ---- 버튼 ---- */
 div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
-  background-color: var(--accent) !important;
+  background-color:var(--accent-button) !important;
   color:#fff !important; border:none !important; border-radius:10px !important;
   font-weight:700 !important; padding:0.65em 1.1em !important;
-  box-shadow: 0 6px 16px -8px rgba(220,38,38,.45);
+  box-shadow:0 5px 14px -8px rgba(143,48,53,.48);
 }
 div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
 div.stButton > button[kind="secondary"]{
-  background:#e9ede6 !important; color:var(--ink) !important; box-shadow:none !important;
+  background:#ffffff !important; color:var(--ink) !important;
+  border:1px solid #aab4c1 !important; box-shadow:none !important;
 }
+button:focus-visible, input:focus-visible, textarea:focus-visible,
+[tabindex]:focus-visible{ outline:2px solid var(--focus) !important; outline-offset:2px; }
 
 /* ---- 결과 영역 ---- */
 div[data-testid="stExpander"]{
   border:1px solid var(--line) !important; border-radius:12px !important;
-  background: var(--surface); overflow:hidden;
+  background:var(--surface); overflow:hidden;
+  box-shadow:0 1px 6px rgba(23,38,58,.04);
 }
 
 /* ---- 대비 강화: 지표·표·라벨이 흐리게 보이지 않도록 ---- */
 div[data-testid="stMetricValue"]{
   font-family:'IBM Plex Mono', monospace;
-  color: var(--accent) !important; font-weight:700 !important;
+  color:#315d78 !important; font-weight:700 !important;
 }
 div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] *{
-  color:#2b332e !important; font-weight:600 !important;
+  color:var(--ink) !important; font-weight:600 !important;
 }
 [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label{
-  color:#1c2420 !important; font-weight:600 !important;
+  color:var(--ink) !important; font-weight:600 !important;
 }
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{
-  color:#414a44 !important;
+  color:var(--muted) !important;
 }
 /* 표(데이터프레임·편집표) 글씨와 테두리를 진하게 */
 [data-testid="stDataFrame"] *, [data-testid="stDataEditor"] *{
-  color:#141a17 !important;
+  color:var(--ink) !important;
 }
 [data-testid="stDataFrame"], [data-testid="stDataEditor"]{
   border:1px solid var(--line) !important; border-radius:8px;
 }
 [data-testid="stDataFrame"] [role="columnheader"],
 [data-testid="stDataEditor"] [role="columnheader"]{
-  background:#e8ecf1 !important; font-weight:700 !important;
+  background:#eef2f6 !important; color:var(--navy) !important; font-weight:700 !important;
 }
 /* 알림 박스에 색 띠를 넣어 눈에 잘 띄게 */
 div[data-testid="stAlert"]{
-  border-left:5px solid var(--accent) !important; border-radius:8px !important;
+  border:1px solid #a9bfce !important;
+  border-left:4px solid #557f99 !important; border-radius:10px !important;
+  background:#eef4f8 !important;
 }
-.paseru-sub{ color:#141a17 !important; }
+.paseru-sub{ color:#22324a !important; }
 
 /* ---- 내비게이션 버튼: 링크 기본색(파랑)에 밀리지 않도록 클래스로 고정 ---- */
 a.paseru-navbtn, a.paseru-navbtn:link, a.paseru-navbtn:visited,
@@ -853,7 +867,7 @@ def build_printable_qr_html(station, route_results, meta):
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; color: #111827; font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }}
 .print-button {{ position: fixed; right: 18px; top: 18px; padding: 12px 18px; border: 0; border-radius: 8px;
-  background: #dc2626; color: white; font-size: 16px; font-weight: 700; cursor: pointer; }}
+  background:#a33a3f; color:white; font-size:16px; font-weight:700; cursor:pointer; }}
 .route {{ min-height: 267mm; page-break-after: always; text-align: center; padding: 8mm 5mm; }}
 .route:last-child {{ page-break-after: auto; }}
 header div {{ font-size: 17px; margin-bottom: 8px; }}
@@ -897,7 +911,7 @@ try {
       short_name: "파세루",
       description: "AI 기반 소방 순찰노선 최적화 서비스",
       start_url: ".", scope: ".", display: "standalone",
-      background_color: "#f3f5f7", theme_color: "#dc2626",
+      background_color: "#f7f8fa", theme_color: "#a33a3f",
       icons: []
     };
     const link = d.createElement('link');
@@ -909,7 +923,7 @@ try {
     meta.name = 'apple-mobile-web-app-capable'; meta.content = 'yes';
     d.head.appendChild(meta);
     const theme = d.createElement('meta');
-    theme.name = 'theme-color'; theme.content = '#dc2626';
+    theme.name = 'theme-color'; theme.content = '#a33a3f';
     d.head.appendChild(theme);
   }
 } catch (e) { /* 환경상 주입이 막히면 조용히 무시 */ }
@@ -918,16 +932,20 @@ try {
     height=0,
 )
 
-st.title("🚒 파세루 오리진 (FireSafe Route Origin)")
 st.markdown(
     """
-    <div style="margin:-0.15rem 0 1.6rem 0;">
-      <div style="font-size:clamp(1.05rem,2.2vw,1.32rem);font-weight:750;
-                  color:#26332c;line-height:1.55;letter-spacing:-0.02em;">
+    <div style="margin:0.2rem 0 1.8rem 0;">
+      <div style="margin-bottom:0.38rem;color:#a33a3f;font-size:clamp(0.88rem,1.7vw,1rem);
+                  font-weight:650;line-height:1.5;letter-spacing:-0.015em;">
         현장의 주소에서 시작해, 가장 효율적인 소방안전의 길을 만듭니다.
       </div>
-      <div style="margin-top:0.35rem;color:#6b756f;font-size:0.93rem;line-height:1.6;">
-        대상 목록과 순찰 조건을 분석하여 실제 도로 기준의 최적 순찰노선을 설계합니다.
+      <div style="display:flex;align-items:baseline;gap:0.65rem;flex-wrap:wrap;
+                  color:#17263a;line-height:1.2;letter-spacing:-0.035em;">
+        <span aria-hidden="true" style="font-size:clamp(1.8rem,4vw,2.45rem);">🚒</span>
+        <span style="font-family:'Noto Serif KR',serif;font-size:clamp(2rem,5vw,3rem);
+                     font-weight:700;">파세루 오리진</span>
+        <span style="color:#667085;font-family:Georgia,serif;font-size:clamp(0.95rem,2vw,1.22rem);
+                     font-weight:500;letter-spacing:-0.01em;">FireSafe Route Origin</span>
       </div>
     </div>
     """,
@@ -2296,7 +2314,7 @@ if "route_results" in st.session_state:
             with col2:
                 m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
                 if rr["path"]:
-                    folium.PolyLine(rr["path"], color="#dc2626", weight=4, opacity=0.85).add_to(m)
+                    folium.PolyLine(rr["path"], color="#a33a3f", weight=4, opacity=0.85).add_to(m)
 
                 # 방문 순서를 지도 위에 숫자로 표시 (기본 핀 대신 번호 원)
                 for i, leg in enumerate(rr["legs"], start=1):
@@ -2322,7 +2340,7 @@ if "route_results" in st.session_state:
                     icon=folium.DivIcon(
                         icon_size=(56, 26), icon_anchor=(28, 13),
                         html=(
-                            '<div style="background:#dc2626;color:#ffffff;'
+                            '<div style="background:#a33a3f;color:#ffffff;'
                             'padding:3px 8px;border-radius:13px;border:2px solid #ffffff;'
                             'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
                             'font-family:sans-serif;font-weight:700;font-size:12px;'
