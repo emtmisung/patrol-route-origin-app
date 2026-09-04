@@ -361,8 +361,36 @@ PASERU_CSS = """
 :root{
   --accent:#c23c2c; --accent-hover:#a32f22; --accent-soft:#f4ddd8;
   --line:#d7ddd2; --surface:#ffffff; --bg:#f1f4f0; --ink:#1c2420; --muted:#5c6660;
+  color-scheme: light;   /* 휴대폰 다크모드에서도 밝은 화면으로 고정 */
 }
-.stApp{ background: var(--bg); }
+.stApp{ background: var(--bg); color: var(--ink); }
+
+/* 휴대폰 다크모드에서 '흰 배경 + 흰 글씨'가 되는 문제를 막기 위해
+   본문 글자색을 어두운 색으로 명시적으로 고정한다. */
+.stApp, .stApp p, .stApp span, .stApp label, .stApp li, .stApp div,
+.stMarkdown, .stMarkdown *, [data-testid="stWidgetLabel"] *,
+[data-testid="stMetricLabel"] *, [data-testid="stMetricValue"],
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{
+  color: var(--ink);
+}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *,
+[data-testid="stMetricLabel"] *{ color: var(--muted) !important; }
+
+/* 알림 박스(노란색·파란색 등) 안 글씨도 항상 검정 계열로 */
+div[data-testid="stAlert"], div[data-testid="stAlert"] *,
+div[data-testid="stNotification"], div[data-testid="stNotification"] *{
+  color:#1c2420 !important;
+}
+
+/* 입력창·표를 밝은 배경 + 어두운 글씨로 고정 */
+input, textarea, select,
+[data-baseweb="input"] input, [data-baseweb="base-input"] input,
+[data-baseweb="select"] div{
+  background-color:#ffffff !important; color:#1c2420 !important;
+}
+[data-testid="stDataFrame"], [data-testid="stDataEditor"],
+[data-testid="stTable"]{ background:#ffffff !important; }
+
 html, body, [class*="css"], .stMarkdown, .stTextInput, .stNumberInput{
   font-family:'Noto Sans KR', -apple-system, 'Malgun Gothic', sans-serif;
 }
@@ -488,13 +516,24 @@ def naver_route_url(station, stops, app_name="paseru.origin"):
     return "nmap://route/car?" + "&".join(parts)
 
 
+def google_route_url(station, stops):
+    """구글지도 웹 길찾기 — 앱이 없어도 브라우저에서 바로 열리는 대체 수단.
+    출발·도착은 센터, 중간 지점은 경유지로 넣는다."""
+    org = f"{station['lat']},{station['lng']}"
+    way = "|".join(f"{s['lat']},{s['lng']}" for s in stops)
+    return ("https://www.google.com/maps/dir/?api=1"
+            f"&origin={org}&destination={org}&waypoints={quote(way, safe='|,')}"
+            "&travelmode=driving")
+
+
 def naver_route_links(station, legs):
-    """노선 전체를 경유지 포함 링크로 만든다. 경유지가 5개를 넘으면 구간을 나눠 여러 개로."""
+    """노선 전체를 경유지 포함 링크로 만든다. 경유지가 5개를 넘으면 구간을 나눠 여러 개로.
+    반환: [(앱링크, 웹대체링크, 구간지점들), ...]"""
     stops = [{"name": lg["to"], "lat": lg["lat"], "lng": lg["lng"]} for lg in legs]
     if not stops:
         return []
     chunks = [stops[i:i + NAVER_MAX_VIA] for i in range(0, len(stops), NAVER_MAX_VIA)]
-    return [(naver_route_url(station, c), c) for c in chunks]
+    return [(naver_route_url(station, c), google_route_url(station, c), c) for c in chunks]
 
 
 def card_title(step, text):
@@ -1339,24 +1378,31 @@ if "route_results" in st.session_state:
 
                 st.markdown("**📱 내비게이션 — 경유지 포함 전체 경로**")
                 links = naver_route_links(station, rr["legs"])
-                for li, (url, chunk) in enumerate(links, start=1):
+                for li, (nurl, gurl, chunk) in enumerate(links, start=1):
                     seq = " → ".join([station["name"]] + [c["name"] for c in chunk] + [station["name"]])
-                    label = ("🧭 네이버지도로 전체 경로 안내" if len(links) == 1
-                             else f"🧭 네이버지도 전체 경로 안내 ({li}/{len(links)}구간)")
+                    suffix = "" if len(links) == 1 else f" ({li}/{len(links)}구간)"
                     st.markdown(
-                        f'<a href="{url}" target="_top" style="display:inline-block;'
-                        'background:#03C75A;color:#fff;padding:9px 14px;border-radius:8px;'
-                        f'font-weight:700;text-decoration:none;font-size:13px;">{label}</a>',
+                        f'<a href="{nurl}" target="_top" style="display:inline-block;'
+                        'background:#03C75A;color:#ffffff !important;padding:10px 14px;border-radius:8px;'
+                        'font-weight:700;text-decoration:none;font-size:13px;margin:2px 6px 2px 0;">'
+                        f'🧭 네이버지도 앱으로 열기{suffix}</a>'
+                        f'<a href="{gurl}" target="_blank" style="display:inline-block;'
+                        'background:#1a73e8;color:#ffffff !important;padding:10px 14px;border-radius:8px;'
+                        'font-weight:700;text-decoration:none;font-size:13px;margin:2px 0;">'
+                        f'🗺 구글지도로 열기(앱 없어도 됨){suffix}</a>',
                         unsafe_allow_html=True,
                     )
                     st.caption(f"경로: {seq}")
-                    with st.expander("링크가 안 열리면 (주소 직접 복사)", expanded=False):
-                        st.code(url, language=None)
+                    with st.expander("링크가 안 열릴 때 (주소 직접 복사)", expanded=False):
+                        st.markdown("**네이버지도 앱 주소** — 복사해서 휴대폰 주소창에 붙여넣기")
+                        st.code(nurl, language=None)
+                        st.markdown("**구글지도 웹 주소**")
+                        st.code(gurl, language=None)
                 if len(links) > 1:
                     st.caption(f"※ 네이버지도는 경유지를 최대 {NAVER_MAX_VIA}개까지 지원해서 "
                                "구간을 나눴습니다. 한 구간씩 순서대로 눌러 주세요.")
-                st.caption("※ 휴대폰에 네이버지도 앱이 설치되어 있어야 열립니다. "
-                           "PC에서는 열리지 않습니다.")
+                st.caption("※ 네이버지도 버튼은 휴대폰에 **네이버지도 앱이 설치**되어 있어야 열립니다"
+                           "(PC·앱 미설치 시 반응 없음). 열리지 않으면 구글지도 버튼을 쓰세요.")
 
                 with st.expander("지점별 개별 길안내(카카오맵)", expanded=False):
                     for i, leg in enumerate(rr["legs"], start=1):
