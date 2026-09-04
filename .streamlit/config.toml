@@ -1,0 +1,11 @@
+# 휴대폰이 다크모드여도 항상 밝은 화면으로 고정한다.
+# (다크모드에서 글씨가 배경에 묻혀 안 보이는 문제 방지)
+[theme]
+base = "light"
+primaryColor = "#c23c2c"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f4f0"
+textColor = "#1c2420"
+
+[client]
+toolbarMode = "minimal"
