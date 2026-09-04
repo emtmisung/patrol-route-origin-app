@@ -1,4 +1,5 @@
 import base64
+import calendar
 import html
 import io
 import math
@@ -245,7 +246,7 @@ def nearest_by_straight_line(cur, candidates, k):
 
 def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
                  target_min_high, max_routes_cap, basis="distance", on_call=None,
-                 candidate_k=5, should_stop=None):
+                 candidate_k=5, should_stop=None, service_min_per_stop=0):
     """points: list of dict(name, address, lat, lng)
     반환: routes(list of list of point dict), unassigned(장거리/미배정)
 
@@ -294,14 +295,14 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
                     break
             else:  # target_time
                 back_km, back_min = real_leg(nxt, station, on_call)
-                projected = acc_min + leg_min + back_min
+                projected = acc_min + leg_min + service_min_per_stop + back_min
                 if not first_stop and projected > target_min_high:
                     break
                 if len(route) >= max_per_route:
                     break
 
             route.append(nxt)
-            acc_min += leg_min
+            acc_min += leg_min + service_min_per_stop
             cur = nxt
             remaining.remove(nxt)
 
@@ -318,6 +319,38 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
             break
 
     return routes, remaining
+
+
+def allocate_hydrants_to_members(points, station, members):
+    """개인별 개수 차이를 1개 이하로 유지하면서 인접 구역으로 배정한다.
+
+    같은 차량의 팀원을 연속 배치한 뒤 센터 기준 방위각으로 정렬한 소화전을
+    연속 구간으로 나눠, 같은 차량 팀원들의 담당 구역도 서로 가깝게 만든다.
+    """
+    if not points or not members:
+        return points
+
+    ordered_members = sorted(members, key=lambda m: (m["vehicle_no"], m["order"]))
+    ordered_points = sorted(
+        points,
+        key=lambda p: (
+            math.atan2(p["lat"] - station["lat"], p["lng"] - station["lng"]),
+            haversine_km((station["lat"], station["lng"]), (p["lat"], p["lng"])),
+        ),
+    )
+    base, extra = divmod(len(ordered_points), len(ordered_members))
+    assigned = []
+    cursor = 0
+    for index, member in enumerate(ordered_members):
+        count = base + (1 if index < extra else 0)
+        for point in ordered_points[cursor:cursor + count]:
+            assigned.append({
+                **point,
+                "assigned_to": member["name"],
+                "vehicle_no": member["vehicle_no"],
+            })
+        cursor += count
+    return assigned
 
 
 def separate_long_distance(points, station, threshold_km, on_call=None, save_calls=True,
@@ -351,6 +384,37 @@ def separate_long_distance(points, station, threshold_km, on_call=None, save_cal
             far.append({**p, "도로거리_km": round(km, 1)})
         else:
             normal.append(p)
+    return normal, far
+
+
+def separate_long_time(points, station, threshold_min, delegate_to, on_call=None,
+                       should_stop=None):
+    """센터 기준 실제 편도시간으로 계절순찰 대상과 원거리 위임 대상을 나눈다."""
+    normal, far = [], []
+    for point in points:
+        if should_stop and should_stop():
+            straight_km = haversine_km(
+                (station["lat"], station["lng"]), (point["lat"], point["lng"])
+            )
+            est_km = straight_km * ROAD_FACTOR
+            est_min = est_km / AVG_SPEED_KMH * 60
+            far.append({
+                **point,
+                "도로거리_km": round(est_km, 1),
+                "편도시간_분": round(est_min),
+                "권장수행": f"{delegate_to} (API 한도 도달로 재확인 필요)",
+            })
+            continue
+        km, mins = real_leg(station, point, on_call)
+        if mins > threshold_min:
+            far.append({
+                **point,
+                "도로거리_km": round(km, 1),
+                "편도시간_분": round(mins),
+                "권장수행": delegate_to,
+            })
+        else:
+            normal.append(point)
     return normal, far
 
 
@@ -870,7 +934,7 @@ if not has_keys():
 # ----------------------------------------------------------------------------
 with st.container(border=True):
     card_title(0, "순찰 제목 · 출발·복귀 기준점")
-    patrol_title = st.text_input("순찰 제목", value="추석 특별경계근무 순찰노선 - 성주군 일원")
+    patrol_title = st.text_input("순찰 제목", value="특별경계근무 순찰노선 - 성주군 일원")
     c1, c2, c3 = st.columns([1, 1.6, 1])
     with c1:
         station_name = st.text_input("출발 부서(소방서·센터) 이름", value="성주소방서")
@@ -886,14 +950,14 @@ st.write("")
 # 1 · 순찰 방법(노선 용도)
 # ----------------------------------------------------------------------------
 PURPOSE_OPTIONS = [
-    "① 특별경계근무용", "② 계절순찰", "③ 예방검사", "④ 지리조사(센터용)", "⑤ 기타",
+    "① 특별경계근무용", "② 계절순찰", "③ 예방검사", "④ 지리조사(센터용)", "⑤ 지휘관 현장방문",
 ]
 PURPOSE_HINT = {
-    "① 특별경계근무용": "명절 등 경계근무 순찰 — 같은 코스를 반복하거나 날짜별로 순환합니다.",
-    "② 계절순찰": "산불·폭염·풍수해 등 계절별 순찰.",
+    "① 특별경계근무용": "명절·선거·축제 등 특별경계근무 — 휴무 공장과 터미널·역·공항·행사장 등 주요 대상을 하루 1~2회 반복 순찰합니다.",
+    "② 계절순찰": "봄·가을·겨울 산림인접 대상과 여름 풍수해 대상을 매일 약 1시간씩 다른 구간으로 순찰합니다.",
     "③ 예방검사": "숙박업소 등 점검 순찰.",
     "④ 지리조사(센터용)": "소화전 등 팀별 순회 — 팀 수·목표시간 기준으로 노선수를 자동 산출합니다.",
-    "⑤ 기타": "지휘관 방문 등 1회성 — 노선당 30분 이내, 팀 수만큼 전 대상을 1회씩 배분합니다.",
+    "⑤ 지휘관 현장방문": "풍수해·산불·재난지역 등 모든 현장을 하루에 실제 도로거리순으로 방문합니다.",
 }
 
 with st.container(border=True):
@@ -905,14 +969,25 @@ with st.container(border=True):
     st.caption(PURPOSE_HINT.get(purpose_label, ""))
     purpose = {
         "① 특별경계근무용": "guard", "② 계절순찰": "season", "③ 예방검사": "inspect",
-        "④ 지리조사(센터용)": "hydrant", "⑤ 기타": "other",
+        "④ 지리조사(센터용)": "hydrant", "⑤ 지휘관 현장방문": "other",
     }.get(purpose_label, "guard")
 
     guard_repeat_label = None
     guard_rounds = None
-    hydrant_teams = None
-    hydrant_target_min = 60
-    other_teams = None
+    hydrant_members = []
+    hydrant_member_count = 0
+    hydrant_vehicle_count = 0
+    hydrant_workdays = 10
+    hydrant_target_min = 90
+    hydrant_max_min = 120
+    hydrant_inspection_min = 5
+    season_scope = "전체 대상 전수순찰"
+    season_actor = "소방센터 출동대"
+    season_vehicle = "소방차"
+    season_oneway_limit = 20
+    season_delegate = "센터장·행정차 또는 의용소방대"
+    commander_route_mode = "전체 대상을 하나의 노선으로 연결"
+    commander_vehicle_count = 1
 
     if purpose == "guard":
         gc1, gc2 = st.columns([1.6, 1])
@@ -925,14 +1000,78 @@ with st.container(border=True):
                 sub_label("하루 반복 횟수")
                 guard_rounds = st.pills("하루 반복 횟수", ["1회", "2회", "3회"], default="1회",
                                         label_visibility="collapsed")
+    elif purpose == "season":
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            season_name = st.pills("계절", ["봄", "여름", "가을", "겨울"], default="여름") or "여름"
+        with sc2:
+            season_target_type = st.text_input(
+                "순찰 대상 유형",
+                value="풍수해취약지역" if season_name == "여름" else "산림인접·산불취약지역",
+            )
+        season_scope = st.pills(
+            "순찰 범위",
+            ["전체 대상 전수순찰", "선택한 대상만 순찰"],
+            default="전체 대상 전수순찰",
+        ) or "전체 대상 전수순찰"
+        sc3, sc4, sc5 = st.columns(3)
+        with sc3:
+            season_actor = st.selectbox("순찰 수행 주체", ["소방센터 출동대", "센터장", "행정요원", "의용소방대"])
+        with sc4:
+            season_vehicle = st.selectbox("순찰 차량", ["소방차", "구급차", "행정차", "개인차(의용소방대)"])
+        with sc5:
+            season_oneway_limit = st.number_input(
+                "센터 기준 편도 제한시간(분)", min_value=5, max_value=120,
+                value=20 if season_vehicle in ("소방차", "구급차") else 30, step=5,
+            )
+        season_delegate = st.selectbox(
+            "제한시간 초과 대상 권장 수행",
+            ["센터장·행정차 또는 의용소방대", "센터장·행정차", "의용소방대"],
+        )
     elif purpose == "hydrant":
         hc1, hc2 = st.columns(2)
         with hc1:
-            hydrant_teams = st.number_input("순찰팀 수", min_value=1, value=3)
+            hydrant_member_count = st.number_input("지리조사 인원 수", min_value=1, max_value=30, value=2)
         with hc2:
-            hydrant_target_min = st.number_input("팀당 목표 소요시간(분)", min_value=10, value=60)
+            hydrant_vehicle_count = st.number_input("운행 차량 수", min_value=1, max_value=15, value=1)
+        st.caption("전체 소화전을 인원수로 균등 배정하고, 같은 차량 팀원의 담당 구역은 서로 가깝게 묶습니다.")
+        with st.expander("차량별 팀원 편성", expanded=True):
+            vehicle_options = list(range(1, int(hydrant_vehicle_count) + 1))
+            for member_index in range(int(hydrant_member_count)):
+                mc1, mc2 = st.columns([1.6, 1])
+                default_vehicle = vehicle_options[member_index % len(vehicle_options)]
+                with mc1:
+                    member_name = st.text_input(
+                        f"팀원 {member_index + 1}",
+                        value=f"대원{member_index + 1}",
+                        key=f"hydrant_member_name_{member_index}",
+                        help="공개 앱에서는 실명 대신 대원1, 대원2 같은 호출명을 권장합니다.",
+                    ).strip() or f"대원{member_index + 1}"
+                with mc2:
+                    vehicle_no = st.selectbox(
+                        f"팀원 {member_index + 1} 차량",
+                        vehicle_options,
+                        index=vehicle_options.index(default_vehicle),
+                        format_func=lambda value: f"{value}호차",
+                        key=f"hydrant_member_vehicle_{member_index}",
+                    )
+                hydrant_members.append({
+                    "name": member_name,
+                    "vehicle_no": int(vehicle_no),
+                    "order": member_index,
+                })
     elif purpose == "other":
-        other_teams = st.number_input("순찰팀 수", min_value=1, value=2)
+        visit_purpose = st.pills(
+            "방문 목적", ["풍수해 현장", "산불 현장", "재난 현장", "기타"], default="재난 현장"
+        ) or "재난 현장"
+        commander_route_mode = st.pills(
+            "노선 구성",
+            ["전체 대상을 하나의 노선으로 연결", "여러 차량으로 균등 분할"],
+            default="전체 대상을 하나의 노선으로 연결",
+        ) or "전체 대상을 하나의 노선으로 연결"
+        if commander_route_mode == "여러 차량으로 균등 분할":
+            commander_vehicle_count = st.number_input("방문 차량 수", min_value=2, max_value=20, value=2)
+        st.caption("목표시간과 원거리 제외 없이 모든 현장을 실제 도로거리순으로 연결합니다.")
 
 st.write("")
 
@@ -1012,6 +1151,89 @@ with st.container(border=True):
             f"{len(inspect_dates) * int(inspect_teams)}팀 일"
         )
         vehicle = st.selectbox("검사 차량", ["소방차", "구급차", "행정차", "개인차"], index=2)
+    elif purpose == "season":
+        card_title(2, "계절순찰 일정")
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            period_start = st.date_input("순찰 시작일", key="period_start")
+        with dc2:
+            period_end = st.date_input("순찰 종료일", key="period_end")
+        season_target_min = 60
+        season_allowance = st.slider("하루 순찰 허용 범위(분, ±)", 0, 30, 10)
+        season_stop_min = st.number_input("대상당 현장 확인시간(분)", min_value=0, max_value=30, value=2)
+        start_dt = datetime.combine(period_start, dtime(9, 0))
+        end_dt = datetime.combine(period_end, dtime(18, 0))
+        period_days = max(1, (period_end - period_start).days + 1)
+        vehicle = season_vehicle
+        inspect_weekdays = []
+        inspect_teams = 1
+        inspect_daily_hours = 6.0
+        inspect_minutes = 40
+        inspect_dates = []
+        st.caption(
+            f"{season_actor} · {season_vehicle} · 하루 약 {season_target_min}분 · "
+            f"센터 편도 {int(season_oneway_limit)}분 초과 대상은 {season_delegate} 대상으로 분류합니다."
+        )
+    elif purpose == "hydrant":
+        card_title(2, "월간 지리조사 설정")
+        st.caption("당비비 근무 기준으로 한 달 10번의 당번일 안에 전체 소화전을 점검하도록 노선을 나눕니다.")
+        hc1, hc2 = st.columns(2)
+        with hc1:
+            survey_year = st.number_input("조사 연도", min_value=2024, max_value=2100, value=2026)
+        with hc2:
+            survey_month = st.selectbox("조사 월", list(range(1, 13)), index=8,
+                                        format_func=lambda value: f"{value}월")
+
+        hc3, hc4, hc5, hc6 = st.columns(4)
+        with hc3:
+            hydrant_workdays = st.number_input("월 당번 근무일", min_value=1, max_value=31, value=10)
+        with hc4:
+            hydrant_target_min = st.number_input(
+                "노선 기본 목표시간(분)", min_value=60, max_value=240, value=90, step=10,
+            )
+        with hc5:
+            hydrant_max_min = st.number_input(
+                "노선 최대 허용시간(분)", min_value=60, max_value=360, value=120, step=10,
+            )
+        with hc6:
+            hydrant_inspection_min = st.number_input(
+                "소화전 1개 조사시간(분)", min_value=0, max_value=60, value=5, step=1,
+            )
+
+        if hydrant_max_min < hydrant_target_min:
+            st.warning("최대 허용시간은 기본 목표시간보다 길게 설정해주세요.")
+            hydrant_max_min = hydrant_target_min
+        last_day = calendar.monthrange(int(survey_year), int(survey_month))[1]
+        period_start = date(int(survey_year), int(survey_month), 1)
+        period_end = date(int(survey_year), int(survey_month), last_day)
+        start_dt = datetime.combine(period_start, dtime(0, 0))
+        end_dt = datetime.combine(period_end, dtime(23, 59))
+        period_days = int(hydrant_workdays)
+        vehicle = f"소방차 {int(hydrant_vehicle_count)}대"
+        inspect_weekdays = []
+        inspect_teams = 1
+        inspect_daily_hours = 6.0
+        inspect_minutes = 40
+        inspect_dates = []
+        st.caption(
+            f"기본 {int(hydrant_target_min)}분 이내로 편성하고, 차량별 노선이 "
+            f"{int(hydrant_workdays)}개를 넘으면 시간을 늘리도록 안내합니다."
+        )
+    elif purpose == "other":
+        card_title(2, "지휘관 현장방문 일정")
+        visit_date = st.date_input("현장방문일", value=date.today(), key="commander_visit_date")
+        commander_vehicle = st.selectbox("방문 차량", ["지휘차", "행정차", "소방차", "기타"])
+        period_start = period_end = visit_date
+        start_dt = datetime.combine(visit_date, dtime(9, 0))
+        end_dt = datetime.combine(visit_date, dtime(18, 0))
+        period_days = 1
+        vehicle = commander_vehicle
+        inspect_weekdays = []
+        inspect_teams = 1
+        inspect_daily_hours = 6.0
+        inspect_minutes = 40
+        inspect_dates = []
+        st.caption("시간 제한 없이 선택한 모든 현장을 하루 동안 실제 도로거리순으로 방문합니다.")
     else:
         card_title(2, "순찰 기간 · 순찰 차량")
         inspect_weekdays = []
@@ -1019,13 +1241,6 @@ with st.container(border=True):
         inspect_daily_hours = 6.0
         inspect_minutes = 40
         inspect_dates = []
-
-        if st.button("🎑 추석 특별경계근무 자동입력 (9.23 18:00 ~ 9.28 09:00, 5일)", type="secondary"):
-            st.session_state["period_start"] = date(2026, 9, 23)
-            st.session_state["period_start_time"] = dtime(18, 0)
-            st.session_state["period_end"] = date(2026, 9, 28)
-            st.session_state["period_end_time"] = dtime(9, 0)
-            st.rerun()
 
         dc1, dc2, dc3, dc4 = st.columns(4)
         with dc1:
@@ -1056,17 +1271,54 @@ st.write("")
 with st.container(border=True):
     card_title(3, "노선 조건 설정")
 
-    time_based = purpose in ("hydrant", "other")
-
-    if time_based:
+    if purpose == "season":
         mode = "target_time"
-        target_min = 30 if purpose == "other" else hydrant_target_min
-        target_min_low = target_min - 10
-        target_min_high = target_min + 10
+        target_min = int(season_target_min)
+        target_min_low = max(10, target_min - int(season_allowance))
+        target_min_high = target_min + int(season_allowance)
         seg_max_km = seg_max_min = None
-        max_per_route = 25
+        max_per_route = 100
         max_routes_cap = 0
-        st.caption(f"목표 {target_min}분/노선 기준으로 자동 편성합니다 (노선 내 대상 수 제한 없음).")
+        basis_label = "소요시간 기준"
+        basis = "time"
+        st.markdown("**계절순찰 자동 편성 기준**")
+        st.caption(
+            f"하루 약 {target_min}분을 기준으로 매일 조금씩 다른 구간을 편성합니다. "
+            f"{season_vehicle}의 센터 편도 제한은 {int(season_oneway_limit)}분이며, "
+            f"이를 넘는 대상은 {season_delegate} 순찰 대상으로 분리합니다."
+        )
+    elif purpose == "hydrant":
+        mode = "target_time"
+        target_min = int(hydrant_target_min)
+        target_min_low = 60
+        target_min_high = int(hydrant_target_min)
+        seg_max_km = seg_max_min = None
+        max_per_route = 100
+        max_routes_cap = 0
+        basis_label = "소요시간 기준"
+        basis = "time"
+        st.markdown("**지리조사 자동 편성 기준**")
+        st.caption(
+            f"개인별 개수를 균등하게 배정한 뒤 같은 차량 팀원의 인접 구역을 묶고, "
+            f"센터 출발·복귀 포함 {target_min}분 이내 노선으로 나눕니다."
+        )
+    elif purpose == "other":
+        mode = "fixed"
+        target_min = None
+        target_min_low = target_min_high = None
+        seg_max_km = seg_max_min = None
+        max_per_route = 100
+        max_routes_cap = (int(commander_vehicle_count)
+                          if commander_route_mode == "여러 차량으로 균등 분할" else 1)
+        basis_label = "거리 기준"
+        basis = "distance"
+        st.markdown("**지휘관 현장방문 자동 편성 기준**")
+        st.caption(
+            "시간 제한 없이 전 대상을 가까운 순서로 연결합니다. "
+            + (f"차량 {int(commander_vehicle_count)}대에 균등하게 나눕니다."
+               if commander_route_mode == "여러 차량으로 균등 분할"
+               else "기본적으로 하루 한 개 노선으로 편성합니다.")
+        )
     else:
         sub_label("가. 기준 방식")
         mode_label = st.pills("기준 방식",
@@ -1114,16 +1366,29 @@ with st.container(border=True):
             target_min_high = target_min + allow_range
             seg_max_km = seg_max_min = None
 
-    sub_label("다. 노선 생성 기준")
-    basis_label = st.pills("노선 생성 기준", ["거리 기준", "소요시간 기준"],
-                           default="거리 기준", label_visibility="collapsed")
-    if not basis_label:
-        basis_label = "거리 기준"
-    basis = "time" if basis_label == "소요시간 기준" else "distance"
-    st.caption("거리 기준: 이동 거리(km)가 가장 짧은 순서로 연결 / 소요시간 기준: 이동 시간(분)이 가장 짧은 순서로 연결")
+    if purpose not in ("hydrant", "season", "other"):
+        sub_label("다. 노선 생성 기준")
+        basis_label = st.pills("노선 생성 기준", ["거리 기준", "소요시간 기준"],
+                               default="거리 기준", label_visibility="collapsed")
+        if not basis_label:
+            basis_label = "거리 기준"
+        basis = "time" if basis_label == "소요시간 기준" else "distance"
+        st.caption("거리 기준: 이동 거리(km)가 가장 짧은 순서로 연결 / 소요시간 기준: 이동 시간(분)이 가장 짧은 순서로 연결")
 
-    sub_label("라. 장거리 분리 기준")
-    long_threshold = st.number_input("소방서 실제 도로거리(km) 초과 시 별도 표시", min_value=1.0, value=15.0)
+        sub_label("라. 장거리 분리 기준")
+        long_threshold = st.number_input("소방서 실제 도로거리(km) 초과 시 별도 표시", min_value=1.0, value=15.0)
+    elif purpose == "hydrant":
+        long_threshold = 99999.0
+        st.caption("월간 전수조사이므로 장거리 소화전도 분리하지 않고 반드시 차량·팀원에게 배정합니다.")
+    elif purpose == "season":
+        long_threshold = 99999.0
+        st.caption(
+            f"직선거리가 아닌 실제 도로의 편도 소요시간으로 판단합니다. "
+            f"{int(season_oneway_limit)}분 초과 대상은 {season_delegate} 권장 대상으로 표시합니다."
+        )
+    else:
+        long_threshold = 99999.0
+        st.caption("지휘관 현장방문은 원거리 대상을 제외하지 않고 전 대상을 거리순으로 편성합니다.")
 
     sub_label("마. API 호출 절약 (요금·시간 절감)")
     save_calls = st.checkbox(
@@ -1165,7 +1430,7 @@ with st.container(border=True):
     st.caption("작성한 엑셀 또는 기존 xlsx/xls·CSV·아래아한글(hwpx) 표를 올리면 자동으로 인식합니다.")
     uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
                                 label_visibility="collapsed")
-    use_sample = st.checkbox("🧪 심사용 예시 20건 불러오기 (성주군 마을회관 특별경계근무 실데이터)",
+    use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
                              value=uploaded is None)
 
 df = None
@@ -1235,6 +1500,18 @@ if df is not None and len(df):
         with pc2:
             addr_col = st.selectbox("지오코딩에 사용할 주소 컬럼", cols, index=addr_col_guess_idx)
 
+        if purpose == "season" and season_scope == "선택한 대상만 순찰":
+            season_choices = df[name_col].dropna().astype(str).tolist()
+            selected_season_targets = st.multiselect(
+                "이번 계절순찰에 포함할 대상",
+                season_choices,
+                default=season_choices,
+                help="지휘관 방침에 따라 이번 기간에 순찰할 구역만 선택할 수 있습니다.",
+            )
+            df = df[df[name_col].astype(str).isin(selected_season_targets)].reset_index(drop=True)
+            if not selected_season_targets:
+                st.warning("순찰 대상을 하나 이상 선택해주세요.")
+
         lat_col_guess = next((c for c in cols if "위도" in str(c) or str(c).lower() == "lat"), None)
         lng_col_guess = next((c for c in cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
         has_coords = bool(lat_col_guess and lng_col_guess)
@@ -1299,12 +1576,45 @@ if df is not None and len(df):
                 "이 계산에는 개인정보가 필요하지 않습니다. 대상 파일은 대상명과 주소만 사용하고 "
                 "담당자 이름·전화번호·검사결과는 업로드하지 마세요."
             )
+        elif purpose == "hydrant":
+            base_count, extra_count = divmod(n_targets, max(int(hydrant_member_count), 1))
+            per_person_text = (f"{base_count}~{base_count + 1}개" if extra_count else f"{base_count}개")
+            average_per_duty = n_targets / max(int(hydrant_member_count) * int(hydrant_workdays), 1)
+            st.markdown("**🧯 월간 지리조사 배정 계획**")
+            hp1, hp2, hp3, hp4 = st.columns(4)
+            hp1.metric("전체 소화전", f"{n_targets}개")
+            hp2.metric("조사 인원", f"{int(hydrant_member_count)}명")
+            hp3.metric("개인별 월 담당", per_person_text)
+            hp4.metric("당번 1회 평균", f"{average_per_duty:.1f}개/인")
+            st.caption(
+                f"차량 {int(hydrant_vehicle_count)}대 · 월 당번 {int(hydrant_workdays)}일 · "
+                f"기본 노선 {int(hydrant_target_min)}분 · 최대 {int(hydrant_max_min)}분. "
+                "좌표 확정 후 같은 차량 팀원의 담당 구역이 인접하도록 자동 배정합니다."
+            )
+        elif purpose == "season":
+            st.markdown("**🌲 계절순찰 계획**")
+            sp1, sp2, sp3, sp4 = st.columns(4)
+            sp1.metric("선택 대상", f"{n_targets}개소")
+            sp2.metric("순찰 기간", f"{period_days}일")
+            sp3.metric("하루 목표", f"{int(season_target_min)}분")
+            sp4.metric("편도 제한", f"{int(season_oneway_limit)}분")
+            st.caption(
+                f"{season_name} · {season_target_type} · {season_scope} · "
+                f"{season_actor}/{season_vehicle}. 실제 도로시간을 계산한 뒤 원거리 대상은 "
+                f"{season_delegate} 권장 대상으로 구분합니다."
+            )
+        elif purpose == "other":
+            st.markdown("**👨‍🚒 지휘관 현장방문 계획**")
+            st.caption(
+                f"{visit_purpose} · {n_targets}개소 · {commander_route_mode}. "
+                "목표시간이나 원거리 제외 없이 실제 도로거리순으로 전 대상을 연결합니다."
+            )
 
         st.caption(f"1단계에서 좌표를 먼저 확정하고, 2단계에서 그 좌표로 노선을 만듭니다. "
                    f"좌표 찾기에는 약 {n_targets}~{n_targets * 3}회의 호출이 듭니다.")
 
         find_coords = st.button("① 좌표 찾기 (주소 → 위·경도)", type="primary",
-                                disabled=not has_keys(), use_container_width=True)
+                                disabled=(not has_keys() or n_targets == 0), use_container_width=True)
 
     # ---- 1단계: 좌표 확정 ---------------------------------------------------
     if find_coords:
@@ -1463,20 +1773,36 @@ if df is not None and len(df):
             st.error("좌표가 있는 대상이 없습니다. 1단계에서 좌표를 확정해 주세요.")
             st.stop()
 
-        # 3) 장거리 분리 (실도로거리 기준)
-        long_progress = st.progress(0.0, text="소방서 기준 실도로거리 확인 중...")
-
         def bump(total_hint=len(points)):
             call_counter["n"] += 1
-            long_progress.progress(min(call_counter["n"] / max(total_hint, 1), 1.0),
-                                   text=f"실제 도로거리 API 호출 중... "
-                                        f"({call_counter['n']:,}/{max_calls:,}회)")
+        # 3) 용도별 원거리 판정
+        if purpose == "hydrant":
+            normal_points = allocate_hydrants_to_members(points, station, hydrant_members)
+            far_points = []
+        elif purpose == "other":
+            # 지휘관 현장방문은 거리가 멀어도 전 대상을 반드시 포함한다.
+            normal_points = points
+            far_points = []
+        else:
+            long_progress = st.progress(0.0, text="소방서 기준 실도로거리 확인 중...")
 
-        normal_points, far_points = separate_long_distance(
-            points, station, long_threshold, on_call=bump, save_calls=bool(candidate_k),
-            should_stop=over_limit,
-        )
-        long_progress.empty()
+            def bump(total_hint=len(points)):
+                call_counter["n"] += 1
+                long_progress.progress(min(call_counter["n"] / max(total_hint, 1), 1.0),
+                                       text=f"실제 도로거리 API 호출 중... "
+                                            f"({call_counter['n']:,}/{max_calls:,}회)")
+
+            if purpose == "season":
+                normal_points, far_points = separate_long_time(
+                    points, station, int(season_oneway_limit), season_delegate,
+                    on_call=bump, should_stop=over_limit,
+                )
+            else:
+                normal_points, far_points = separate_long_distance(
+                    points, station, long_threshold, on_call=bump, save_calls=bool(candidate_k),
+                    should_stop=over_limit,
+                )
+            long_progress.empty()
 
         # 4) 노선 편성
         build_progress = st.empty()
@@ -1486,12 +1812,40 @@ if df is not None and len(df):
             build_progress.text(f"실도로 기준 노선 편성 중... "
                                 f"(API 호출 {call_counter['n']:,}/{max_calls:,}회)")
 
-        routes, unassigned = build_routes(
-            normal_points, station, mode, max_per_route,
-            seg_max_km, seg_max_min, target_min_high,
-            max_routes_cap or None, basis=basis, on_call=bump_build,
-            candidate_k=candidate_k, should_stop=over_limit,
-        )
+        if purpose == "hydrant":
+            routes = []
+            unassigned = []
+            for vehicle_no in range(1, int(hydrant_vehicle_count) + 1):
+                vehicle_points = [p for p in normal_points if p.get("vehicle_no") == vehicle_no]
+                if not vehicle_points:
+                    continue
+                vehicle_routes, vehicle_unassigned = build_routes(
+                    vehicle_points, station, "target_time", 100,
+                    None, None, int(hydrant_target_min),
+                    None, basis="time", on_call=bump_build,
+                    candidate_k=candidate_k, should_stop=over_limit,
+                    service_min_per_stop=int(hydrant_inspection_min),
+                )
+                routes.extend(vehicle_routes)
+                unassigned.extend(vehicle_unassigned)
+        elif purpose == "other":
+            commander_route_count = (int(commander_vehicle_count)
+                                     if commander_route_mode == "여러 차량으로 균등 분할" else 1)
+            commander_per_route = max(1, math.ceil(len(normal_points) / commander_route_count))
+            routes, unassigned = build_routes(
+                normal_points, station, "fixed", commander_per_route,
+                None, None, None, commander_route_count,
+                basis="distance", on_call=bump_build,
+                candidate_k=candidate_k, should_stop=over_limit,
+            )
+        else:
+            routes, unassigned = build_routes(
+                normal_points, station, mode, max_per_route,
+                seg_max_km, seg_max_min, target_min_high,
+                max_routes_cap or None, basis=basis, on_call=bump_build,
+                candidate_k=candidate_k, should_stop=over_limit,
+                service_min_per_stop=(int(season_stop_min) if purpose == "season" else 0),
+            )
         build_progress.empty()
 
         if limit_hit["v"]:
@@ -1508,12 +1862,19 @@ if df is not None and len(df):
 
         # 용도별 부가 정보
         team_info = ""
-        if purpose == "hydrant" and hydrant_teams:
-            rounds_needed = math.ceil(len(routes) / hydrant_teams) if routes else 0
-            team_info = f" · 팀 {hydrant_teams}개 기준 팀당 {rounds_needed}회"
-        elif purpose == "other" and other_teams:
-            rounds_needed = math.ceil(len(routes) / other_teams) if routes else 0
-            team_info = f" · 팀 {other_teams}개 기준 팀당 {rounds_needed}회"
+        if purpose == "hydrant":
+            base_count, extra_count = divmod(len(points), max(int(hydrant_member_count), 1))
+            count_text = (f"{base_count}~{base_count + 1}개" if extra_count else f"{base_count}개")
+            team_info = (f" · {hydrant_member_count}명 개인별 {count_text}"
+                         f" · 차량 {hydrant_vehicle_count}대 · 월 {hydrant_workdays}근무일")
+        elif purpose == "season":
+            team_info = (f" · {season_name}/{season_target_type} · {season_actor}/{season_vehicle}"
+                         f" · 하루 약 {int(season_target_min)}분"
+                         f" · 원거리 {season_delegate} 권장")
+        elif purpose == "other":
+            team_info = (f" · {visit_purpose} · {commander_route_mode}"
+                         + (f"({int(commander_vehicle_count)}대)"
+                            if commander_route_mode == "여러 차량으로 균등 분할" else ""))
         elif purpose == "inspect":
             available_team_days = len(inspect_dates) * int(inspect_teams)
             assigned_targets = sum(len(route) for route in routes)
@@ -1526,8 +1887,9 @@ if df is not None and len(df):
         elif purpose == "guard":
             team_info = f" · 매일 다른 코스로 순환({period_days}일간 {len(routes)}개 노선 배정)"
 
+        far_word = "원거리 위임 권장" if purpose == "season" else "장거리 별도"
         st.success(f"[{purpose_label}] 총 {len(routes)}개 노선, {sum(len(r) for r in routes)}개소 배정 완료 "
-                   f"(장거리 별도 {len(far_points)}개소){team_info}")
+                   f"({far_word} {len(far_points)}개소){team_info}")
 
         # 5) 확정 노선의 구간별 실도로거리·경로좌표
         route_results = []
@@ -1546,10 +1908,15 @@ if df is not None and len(df):
                     km = haversine_km((cur["lat"], cur["lng"]), (p["lat"], p["lng"])) * ROAD_FACTOR
                     mins = km / AVG_SPEED_KMH * 60
                     path = [(cur["lat"], cur["lng"]), (p["lat"], p["lng"])]
+                service_min = (int(hydrant_inspection_min) if purpose == "hydrant" else
+                               int(season_stop_min) if purpose == "season" else 0)
                 legs.append({"from": cur["name"], "to": p["name"], "to_address": p.get("address", ""),
-                             "km": km, "min": mins, "lat": p["lat"], "lng": p["lng"]})
+                             "km": km, "min": mins, "inspection_min": service_min,
+                             "assigned_to": p.get("assigned_to", ""),
+                             "vehicle_no": p.get("vehicle_no"),
+                             "lat": p["lat"], "lng": p["lng"]})
                 acc_km += km
-                acc_min += mins
+                acc_min += mins + service_min
                 all_path += path
                 cur = p
                 done += 1
@@ -1567,10 +1934,46 @@ if df is not None and len(df):
 
             route_results.append({
                 "route_no": ri + 1, "stops": route, "legs": legs,
+                "vehicle_no": route[0].get("vehicle_no") if route else None,
+                "assigned_members": sorted({p.get("assigned_to", "") for p in route if p.get("assigned_to")}),
                 "back_km": back_km, "back_min": back_min,
                 "total_km": acc_km, "total_min": acc_min, "path": all_path,
             })
         call_progress.empty()
+
+        if purpose == "hydrant":
+            route_counts = {
+                vehicle_no: sum(1 for result in route_results if result.get("vehicle_no") == vehicle_no)
+                for vehicle_no in range(1, int(hydrant_vehicle_count) + 1)
+            }
+            over_vehicles = {v: count for v, count in route_counts.items() if count > int(hydrant_workdays)}
+            if over_vehicles:
+                detail = ", ".join(f"{v}호차 {count}개 노선" for v, count in over_vehicles.items())
+                suggested = min(
+                    int(hydrant_max_min),
+                    math.ceil(int(hydrant_target_min) * max(over_vehicles.values()) / int(hydrant_workdays) / 10) * 10,
+                )
+                st.warning(
+                    f"월 {int(hydrant_workdays)}번의 당번일을 초과하는 차량이 있습니다: {detail}. "
+                    f"우선 목표시간을 약 {suggested}분으로 늘려 다시 편성해 보세요. "
+                    f"{int(hydrant_max_min)}분에서도 10개 이내가 되지 않으면 인원 또는 차량 편성을 조정해야 합니다."
+                )
+            else:
+                detail = " · ".join(f"{v}호차 {count}개 노선" for v, count in route_counts.items())
+                st.success(f"월 {int(hydrant_workdays)}번의 당번일 안에 전수조사가 가능합니다. {detail}")
+        elif purpose == "season":
+            required_days = len(route_results)
+            if required_days > period_days:
+                st.warning(
+                    f"현재 하루 약 {int(season_target_min)}분 기준으로 {required_days}일이 필요하지만 "
+                    f"설정한 기간은 {period_days}일입니다. 기간을 {required_days}일 이상으로 늘리거나 "
+                    "하루 순찰시간을 늘려 다시 편성해주세요."
+                )
+            else:
+                st.success(
+                    f"가까운 대상은 {required_days}일에 나누어 순찰할 수 있어 "
+                    f"설정 기간 {period_days}일 안에 편성이 가능합니다."
+                )
 
         st.session_state["station"] = station
         st.session_state["route_results"] = route_results
@@ -1579,8 +1982,12 @@ if df is not None and len(df):
             "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
             "period": (f"{period_start:%Y-%m-%d} ~ {period_end:%Y-%m-%d} "
                        f"(검사 가능일 {len(inspect_dates)}일)" if purpose == "inspect" else
+                       f"{period_start:%Y년 %m월} · 월 당번 {int(hydrant_workdays)}일" if purpose == "hydrant" else
+                       f"{period_start:%Y-%m-%d}" if purpose == "other" else
                        f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)"),
-            "period_label": "검사기간" if purpose == "inspect" else "순찰기간",
+            "period_label": ("검사기간" if purpose == "inspect" else
+                             "조사월" if purpose == "hydrant" else
+                             "방문일" if purpose == "other" else "순찰기간"),
             "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
             "target_min": target_min,
         }
@@ -1609,7 +2016,8 @@ if "route_results" in st.session_state:
     m1.metric("생성 노선 수", f"{len(route_results)}")
     m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
     m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
-    m4.metric("원거리 분리 대상", f"{len(far_points)}")
+    m4.metric("원거리 위임 권장" if meta.get("purpose") == "② 계절순찰" else "원거리 분리 대상",
+              f"{len(far_points)}")
 
     # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
     with st.container(border=True):
@@ -1692,8 +2100,10 @@ if "route_results" in st.session_state:
             ws.cell(row=r, column=c, value=station["name"]); c += 1
             ws.cell(row=r, column=c, value=f"{prefix}노선{no}"); c += 1
             ws.cell(row=r, column=c, value="근거리"); c += 1
-            ws.cell(row=r, column=c, value=st.session_state.get(f"team_name_{no}", "")); c += 1
-            ws.cell(row=r, column=c, value=st.session_state.get(f"team_members_{no}", "")); c += 1
+            auto_team = f"{rr.get('vehicle_no')}호차" if rr.get("vehicle_no") else ""
+            auto_members = ", ".join(rr.get("assigned_members") or [])
+            ws.cell(row=r, column=c, value=(st.session_state.get(f"team_name_{no}", "") or auto_team)); c += 1
+            ws.cell(row=r, column=c, value=(st.session_state.get(f"team_members_{no}", "") or auto_members)); c += 1
             ws.cell(row=r, column=c, value=station["name"]); c += 1
             acc_km = 0.0
             for leg in rr["legs"]:
@@ -1783,7 +2193,11 @@ if "route_results" in st.session_state:
     for rr in route_results:
         team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
         over_mark = " ⏱초과" if target_min_ref and rr["total_min"] > target_min_ref else ""
-        head = (f"노선 {rr['route_no']}" + (f" · {team_name}" if team_name else "") +
+        hydrant_label = ""
+        if meta.get("purpose") == "④ 지리조사(센터용)" and rr.get("vehicle_no"):
+            members = ", ".join(rr.get("assigned_members") or [])
+            hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
+        head = (f"노선 {rr['route_no']}" + hydrant_label + (f" · {team_name}" if team_name else "") +
                 f" — {len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분{over_mark}")
         with st.expander(head, expanded=True):
             col1, col2 = st.columns([1, 1])
@@ -1791,10 +2205,14 @@ if "route_results" in st.session_state:
             with col1:
                 rows = []
                 for i, leg in enumerate(rr["legs"], start=1):
-                    rows.append({
+                    row = {
                         "순번": str(i), "지점": stop_label(leg["to"], leg.get("to_address")),
                         "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
-                    })
+                    }
+                    if meta.get("purpose") == "④ 지리조사(센터용)":
+                        row["담당"] = leg.get("assigned_to", "")
+                        row["조사시간(분)"] = leg.get("inspection_min", 0)
+                    rows.append(row)
                 rows.append({"순번": "", "지점": f"복귀 ({station['name']})",
                              "구간거리(km)": round(rr["back_km"], 1),
                              "구간시간(분)": round(rr["back_min"])})
@@ -1903,13 +2321,22 @@ if "route_results" in st.session_state:
                 st_folium(m, height=350, use_container_width=True, key=f"map_{rr['route_no']}")
 
     if far_points:
-        st.header("⚠️ 장거리 별도 대상")
-        st.dataframe(pd.DataFrame(far_points)[["name", "address", "도로거리_km"]],
+        is_season_far = meta.get("purpose") == "② 계절순찰"
+        st.header("🚙 원거리 위임 권장 대상" if is_season_far else "⚠️ 장거리 별도 대상")
+        far_df = pd.DataFrame(far_points)
+        far_columns = ["name", "address", "도로거리_km"]
+        if is_season_far:
+            far_columns += ["편도시간_분", "권장수행"]
+            st.info("출동 공백을 줄이기 위해 설정한 편도 제한시간을 넘는 대상입니다. "
+                    "센터장·행정차 또는 의용소방대 순찰 대상으로 검토하세요.")
+        st.dataframe(far_df[[column for column in far_columns if column in far_df.columns]],
                      use_container_width=True, hide_index=True)
         for p in far_points:
             st.markdown(
                 f"- [{p['name']} 길안내]({kakao_url(p['name'], p['lat'], p['lng'])})"
                 f" · 실도로거리 {p['도로거리_km']}km"
+                + (f" · 편도 약 {p.get('편도시간_분', '-')}분 · {p.get('권장수행', '')}"
+                   if is_season_far else "")
             )
 
     st.divider()
