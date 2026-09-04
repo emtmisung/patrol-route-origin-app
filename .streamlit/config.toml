@@ -2,9 +2,9 @@
 # (다크모드에서 글씨가 배경에 묻혀 안 보이는 문제 방지)
 [theme]
 base = "light"
-primaryColor = "#c23c2c"
+primaryColor = "#dc2626"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f1f4f0"
+secondaryBackgroundColor = "#f3f5f7"
 textColor = "#1c2420"
 
 [client]
