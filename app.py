@@ -918,9 +918,21 @@ try {
     height=0,
 )
 
-st.markdown('<div class="paseru-eyebrow">성주소방서 · 119재난대응과 · 실동 버전</div>', unsafe_allow_html=True)
 st.title("🚒 파세루 오리진 (FireSafe Route Origin)")
-st.caption("주소 목록과 순찰 조건만 넣으면, 실도로 기준(NCP Geocoding · Directions5 실연동)으로 노선을 자동 편성합니다.")
+st.markdown(
+    """
+    <div style="margin:-0.15rem 0 1.6rem 0;">
+      <div style="font-size:clamp(1.05rem,2.2vw,1.32rem);font-weight:750;
+                  color:#26332c;line-height:1.55;letter-spacing:-0.02em;">
+        현장의 주소에서 시작해, 가장 효율적인 소방안전의 길을 만듭니다.
+      </div>
+      <div style="margin-top:0.35rem;color:#6b756f;font-size:0.93rem;line-height:1.6;">
+        대상 목록과 순찰 조건을 분석하여 실제 도로 기준의 최적 순찰노선을 설계합니다.
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 if not has_keys():
     st.error(
