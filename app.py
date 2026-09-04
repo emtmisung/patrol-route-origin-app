@@ -359,8 +359,8 @@ PASERU_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Noto+Serif+KR:wght@600;700&family=IBM+Plex+Mono:wght@500;700&display=swap');
 
 :root{
-  --accent:#c23c2c; --accent-hover:#a32f22; --accent-soft:#f4ddd8;
-  --line:#c3cbbd; --surface:#ffffff; --bg:#eef2ea; --ink:#141a17; --muted:#414a44;
+  --accent:#dc2626; --accent-hover:#b91c1c; --accent-soft:#fee2e2;
+  --line:#d9dee4; --surface:#ffffff; --bg:#f3f5f7; --ink:#141a17; --muted:#414a44;
   color-scheme: light;   /* 휴대폰 다크모드에서도 밝은 화면으로 고정 */
 }
 .stApp{ background: var(--bg); color: var(--ink); }
@@ -404,7 +404,7 @@ div[data-testid="stVerticalBlockBorderWrapper"]{
   background: var(--surface);
   border-radius: 14px !important;
   border: 1px solid var(--line) !important;
-  box-shadow: 0 1px 2px rgba(28,36,32,.06), 0 10px 26px -14px rgba(28,36,32,.22);
+  box-shadow: 0 1px 2px rgba(20,26,30,.05), 0 10px 26px -14px rgba(20,26,30,.18);
   padding: 10px 16px 14px;
   margin-bottom: 6px;
 }
@@ -445,7 +445,7 @@ button[data-variant="pills"][aria-pressed="true"]{
   border-color: var(--accent) !important;
   color: #ffffff !important;
   font-weight: 700 !important;
-  box-shadow: 0 4px 12px -6px rgba(194,60,44,.8);
+  box-shadow: 0 4px 12px -6px rgba(220,38,38,.55);
 }
 button[data-variant="pills"][data-selected="true"] *,
 button[data-variant="pills"][aria-checked="true"] *,
@@ -457,7 +457,7 @@ div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
   background-color: var(--accent) !important;
   color:#fff !important; border:none !important; border-radius:10px !important;
   font-weight:700 !important; padding:0.65em 1.1em !important;
-  box-shadow: 0 6px 16px -8px rgba(194,60,44,.7);
+  box-shadow: 0 6px 16px -8px rgba(220,38,38,.45);
 }
 div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
 div.stButton > button[kind="secondary"]{
@@ -493,13 +493,29 @@ div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] *{
 }
 [data-testid="stDataFrame"] [role="columnheader"],
 [data-testid="stDataEditor"] [role="columnheader"]{
-  background:#e4eade !important; font-weight:700 !important;
+  background:#e8ecf1 !important; font-weight:700 !important;
 }
 /* 알림 박스에 색 띠를 넣어 눈에 잘 띄게 */
 div[data-testid="stAlert"]{
   border-left:5px solid var(--accent) !important; border-radius:8px !important;
 }
 .paseru-sub{ color:#141a17 !important; }
+
+/* ---- 내비게이션 버튼: 링크 기본색(파랑)에 밀리지 않도록 클래스로 고정 ---- */
+a.paseru-navbtn, a.paseru-navbtn:link, a.paseru-navbtn:visited,
+a.paseru-navbtn:hover, a.paseru-navbtn:active,
+a.paseru-navbtn *{
+  color:#ffffff !important;
+  text-decoration:none !important;
+}
+a.paseru-navbtn{
+  display:inline-block; padding:12px 16px; border-radius:10px;
+  font-weight:700 !important; font-size:14px; margin:4px 8px 4px 0;
+  box-shadow:0 3px 10px -4px rgba(0,0,0,.35);
+}
+a.paseru-navbtn.nav-and{ background:#03C75A !important; }   /* 안드로이드 (네이버 초록) */
+a.paseru-navbtn.nav-ios{ background:#0a8f45 !important; }   /* 아이폰 */
+a.paseru-navbtn.nav-pc{  background:#2563eb !important; }   /* PC 웹 (밝은 파랑) */
 </style>
 """
 st.markdown(PASERU_CSS, unsafe_allow_html=True)
@@ -529,7 +545,7 @@ def kakao_url(name, lat, lng):
 NAVER_MAX_VIA = 5   # 네이버지도 URL Scheme이 지원하는 경유지 최대 개수
 
 
-def naver_route_url(station, stops, app_name="paseru.origin"):
+def naver_route_url(station, stops, app_name="faseru-origin.streamlit.app"):
     """네이버지도 자동차 길찾기 링크 — 출발(센터) → 경유지들 → 도착(센터).
 
     경유지는 최대 5개까지 지원하므로, 그보다 많으면 호출부에서 나눠서 만든다.
@@ -550,9 +566,7 @@ def naver_intent_url(nmap_url):
     """안드로이드 크롬은 nmap:// 같은 커스텀 스킴을 막기 때문에 intent:// 형식으로 바꿔준다.
     (앱이 없으면 플레이스토어로 이동)"""
     body = nmap_url[len("nmap://"):]
-    return (f"intent://{body}#Intent;scheme=nmap;package=com.nhn.android.nmap;"
-            "S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2F"
-            "details%3Fid%3Dcom.nhn.android.nmap;end")
+    return f"intent://{body}#Intent;scheme=nmap;package=com.nhn.android.nmap;end"
 
 
 def naver_web_route_url(station, stops):
@@ -598,7 +612,7 @@ try {
       short_name: "파세루",
       description: "AI 기반 소방 순찰노선 최적화 서비스",
       start_url: ".", scope: ".", display: "standalone",
-      background_color: "#f1f4f0", theme_color: "#c23c2c",
+      background_color: "#f3f5f7", theme_color: "#dc2626",
       icons: []
     };
     const link = d.createElement('link');
@@ -610,7 +624,7 @@ try {
     meta.name = 'apple-mobile-web-app-capable'; meta.content = 'yes';
     d.head.appendChild(meta);
     const theme = d.createElement('meta');
-    theme.name = 'theme-color'; theme.content = '#c23c2c';
+    theme.name = 'theme-color'; theme.content = '#dc2626';
     d.head.appendChild(theme);
   }
 } catch (e) { /* 환경상 주입이 막히면 조용히 무시 */ }
@@ -1421,23 +1435,22 @@ if "route_results" in st.session_state:
                     seq = " → ".join([station["name"]] + [c["name"] for c in chunk] + [station["name"]])
                     suffix = "" if len(links) == 1 else f" ({li}/{len(links)}구간)"
                     iurl = naver_intent_url(nurl)
-                    btn = ("display:inline-block;color:#ffffff !important;padding:11px 15px;"
-                           "border-radius:9px;font-weight:700;text-decoration:none;"
-                           "font-size:13.5px;margin:3px 6px 3px 0;")
                     st.markdown(
-                        f'<a href="{iurl}" target="_top" style="{btn}background:#03C75A;">'
-                        f'📱 휴대폰(안드로이드)에서 경유지 안내{suffix}</a>'
-                        f'<a href="{nurl}" target="_top" style="{btn}background:#0a8f45;">'
-                        f'📱 휴대폰(아이폰)에서 경유지 안내{suffix}</a>'
-                        f'<a href="{wurl}" target="_blank" style="{btn}background:#4a544d;">'
+                        f'<a class="paseru-navbtn nav-and" href="{iurl}" target="_top">'
+                        f'📱 안드로이드폰에서 경유지 안내{suffix}</a>'
+                        f'<a class="paseru-navbtn nav-ios" href="{nurl}" target="_top">'
+                        f'📱 아이폰에서 경유지 안내{suffix}</a>'
+                        f'<a class="paseru-navbtn nav-pc" href="{wurl}" target="_blank">'
                         f'💻 PC에서 지도로 보기{suffix}</a>',
                         unsafe_allow_html=True,
                     )
                     st.caption(f"경로: {seq}")
-                    with st.expander("링크가 안 열릴 때 (주소 직접 복사)", expanded=False):
-                        st.markdown("**안드로이드 휴대폰용**")
+                    with st.expander("🔧 버튼이 안 열릴 때 — 주소를 복사해 직접 열어보기", expanded=False):
+                        st.markdown("아래 주소를 **복사해서 휴대폰 브라우저 주소창에 붙여넣고 이동**해 보세요. "
+                                    "버튼은 막혀도 주소창 입력은 열리는 경우가 많습니다.")
+                        st.markdown("**① 안드로이드폰용 (intent 방식)**")
                         st.code(iurl, language=None)
-                        st.markdown("**아이폰용**")
+                        st.markdown("**② 안드로이드·아이폰 공용 (nmap 방식)**")
                         st.code(nurl, language=None)
                         st.markdown("**경유지 좌표 목록** (다른 내비 앱에 직접 입력할 때)")
                         st.code("\n".join(
@@ -1464,7 +1477,7 @@ if "route_results" in st.session_state:
             with col2:
                 m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
                 if rr["path"]:
-                    folium.PolyLine(rr["path"], color="#c23c2c", weight=4, opacity=0.85).add_to(m)
+                    folium.PolyLine(rr["path"], color="#dc2626", weight=4, opacity=0.85).add_to(m)
 
                 # 방문 순서를 지도 위에 숫자로 표시 (기본 핀 대신 번호 원)
                 for i, leg in enumerate(rr["legs"], start=1):
@@ -1490,7 +1503,7 @@ if "route_results" in st.session_state:
                     icon=folium.DivIcon(
                         icon_size=(56, 26), icon_anchor=(28, 13),
                         html=(
-                            '<div style="background:#c23c2c;color:#ffffff;'
+                            '<div style="background:#dc2626;color:#ffffff;'
                             'padding:3px 8px;border-radius:13px;border:2px solid #ffffff;'
                             'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
                             'font-family:sans-serif;font-weight:700;font-size:12px;'
