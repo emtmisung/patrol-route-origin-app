@@ -2345,3 +2345,18 @@ if "route_results" in st.session_state:
         "실제 도로거리·소요시간은 NCP Geocoding·Directions5 실시간 계산 결과입니다. "
         "📲 휴대폰에서는 브라우저 메뉴의 '홈 화면에 추가'를 누르면 앱처럼 사용할 수 있습니다."
     )
+
+st.info(
+    "📌 본 앱이 생성한 순찰노선은 업무 지원을 위한 참고자료입니다. "
+    "현장 여건, 도로 상황, 출동 공백 및 대상별 특성을 담당자가 충분히 검토한 후 사용하시기 바랍니다. "
+    "최종 노선의 검토·결정과 운용 책임은 프로그램 사용자 및 해당 부서에 있습니다."
+)
+
+st.markdown(
+    '<div style="margin-top:18px;padding:14px 8px 4px;text-align:center;'
+    'border-top:1px solid #d9dee4;color:#5f6b64;font-size:0.86rem;">'
+    '파세루 오리진&nbsp; | &nbsp;기획·개발 임미성&nbsp; | &nbsp;문의: '
+    '<a href="mailto:emtmisung@gmail.com" style="color:#1f6fb2;'
+    'text-decoration:none;">emtmisung@gmail.com</a></div>',
+    unsafe_allow_html=True,
+)
