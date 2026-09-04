@@ -178,10 +178,53 @@ def separate_long_distance(points, station, threshold_km, on_call=None):
 
 
 # ----------------------------------------------------------------------------
-# UI
+# UI — 파세루 데모(claude.ai 프로토타입)와 같은 카드+칩 스타일로 구성
 # ----------------------------------------------------------------------------
+PASERU_CSS = """
+<style>
+:root{
+  --accent:#c23c2c; --accent-soft:#f4ddd8; --line:#d7ddd2; --surface:#ffffff; --bg:#f1f4f0;
+}
+.stApp{ background: var(--bg); }
+h1, h2, h3 { font-weight: 800 !important; }
+[data-testid="stTitle"], h1 { color:#1c2420; }
+/* 카드 컨테이너(border=True) 스타일 */
+div[data-testid="stVerticalBlockBorderWrapper"]{
+  background: var(--surface);
+  border-radius: 14px !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: 0 1px 2px rgba(28,36,32,.06), 0 8px 24px -12px rgba(28,36,32,.18);
+  padding: 4px 6px;
+}
+/* pills(칩) 선택 위젯을 카드형 버튼처럼 */
+div[data-testid="stPills"] label{
+  border-radius: 10px !important;
+}
+/* 기본 버튼(노선 생성하기)을 브랜드 레드로 강조 */
+div.stButton > button, div.stFormSubmitter > button, .stDownloadButton > button{
+  background-color: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  padding: 0.7em 1em !important;
+}
+div.stButton > button:hover, .stDownloadButton > button:hover{
+  background-color: #a32f22 !important;
+  color: #fff !important;
+}
+/* 헤더 아이콘 뱃지 느낌 */
+.paseru-eyebrow{
+  font-family: monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--accent); font-weight: 700; margin-bottom: 2px;
+}
+</style>
+"""
+st.markdown(PASERU_CSS, unsafe_allow_html=True)
+
+st.markdown('<div class="paseru-eyebrow">성주소방서 · 119재난대응과 · 실동 버전</div>', unsafe_allow_html=True)
 st.title("🚒 파세루 오리진 (FireSafe Route Origin)")
-st.caption("주소 목록을 업로드하면 실제 도로거리 기준(NCP Geocoding·Directions5 실연동)으로 순찰노선을 자동 편성합니다.")
+st.caption("주소 목록과 순찰 조건만 넣으면, 실도로 기준(NCP Geocoding · Directions5 실연동)으로 노선을 자동 편성합니다.")
 
 if not has_keys():
     st.error(
@@ -190,37 +233,114 @@ if not has_keys():
         "NCP_CLIENT_ID / NCP_CLIENT_SECRET 값을 등록해주세요."
     )
 
-with st.sidebar:
-    st.header("① 출발점(소방서) 설정")
-    station_name = st.text_input("이름", value="성주소방서")
-    station_address = st.text_input("주소", value="경상북도 성주군 성주읍 주산로 193")
+with st.container(border=True):
+    st.markdown("##### 0 · 출발·복귀 기준점(소방서·센터)")
+    c1, c2 = st.columns(2)
+    with c1:
+        station_name = st.text_input("이름", value="성주소방서")
+    with c2:
+        station_address = st.text_input("주소", value="경상북도 성주군 성주읍 주산로 193")
 
-    st.header("② 순찰 기준 설정")
-    mode_label = st.radio("기준 방식", ["구간별 제한", "노선 전체 목표시간"])
-    mode = "segment" if mode_label == "구간별 제한" else "target_time"
+st.write("")
 
-    max_per_route = st.number_input("노선당 최대 대상 수", min_value=1, max_value=30, value=4)
+PURPOSE_OPTIONS = [
+    "① 특별경계근무용", "② 계절순찰", "③ 예방검사", "④ 지리조사(센터용)", "⑤ 기타",
+]
+PURPOSE_HINT = {
+    "① 특별경계근무용": "명절 등 경계근무 순찰 — 같은 코스를 반복하거나 날짜별로 순환합니다.",
+    "② 계절순찰": "산불·폭염·풍수해 등 계절별 순찰.",
+    "③ 예방검사": "숙박업소 등 점검 순찰.",
+    "④ 지리조사(센터용)": "소화전 등 팀별 순회 — 팀 수·목표시간 기준으로 노선수를 자동 산출합니다.",
+    "⑤ 기타": "지휘관 방문 등 1회성 — 노선당 30분 이내, 팀 수만큼 전 대상을 1회씩 배분합니다.",
+}
 
-    if mode == "segment":
-        seg_max_km = st.number_input("구간당 최대 거리(km)", min_value=1.0, value=7.0, step=0.5)
-        seg_max_min = st.number_input("구간당 최대 시간(분)", min_value=1, value=10)
-        target_min = target_min_low = target_min_high = None
-    else:
-        target_min = st.number_input("목표 왕복시간(분)", min_value=10, value=60)
-        allow_range = st.slider("허용 범위(분, ±)", 0, 60, 15)
+with st.container(border=True):
+    st.markdown("##### 1 · 순찰 방법(노선 용도)")
+    purpose_label = st.pills("노선 용도", PURPOSE_OPTIONS, default=PURPOSE_OPTIONS[0],
+                              label_visibility="collapsed")
+    st.caption(PURPOSE_HINT.get(purpose_label, ""))
+    purpose = {
+        "① 특별경계근무용": "guard", "② 계절순찰": "season", "③ 예방검사": "inspect",
+        "④ 지리조사(센터용)": "hydrant", "⑤ 기타": "other",
+    }.get(purpose_label, "guard")
+
+    guard_repeat_label = None
+    guard_rounds = None
+    hydrant_teams = None
+    other_teams = None
+
+    if purpose == "guard":
+        gc1, gc2 = st.columns(2)
+        with gc1:
+            guard_repeat_label = st.pills("반복 방식", ["매일 같은 코스 반복", "매일 다른 코스 순환"],
+                                           default="매일 같은 코스 반복")
+        with gc2:
+            if guard_repeat_label == "매일 같은 코스 반복":
+                guard_rounds = st.pills("하루 반복 횟수", ["1회", "2회", "3회"], default="1회")
+    elif purpose == "hydrant":
+        hc1, hc2 = st.columns(2)
+        with hc1:
+            hydrant_teams = st.number_input("순찰팀 수", min_value=1, value=3)
+        with hc2:
+            hydrant_target_min = st.number_input("팀당 목표 소요시간(분)", min_value=10, value=60)
+    elif purpose == "other":
+        other_teams = st.number_input("순찰팀 수", min_value=1, value=2)
+
+st.write("")
+
+with st.container(border=True):
+    st.markdown("##### 2 · 노선 조건 설정")
+
+    time_based = purpose in ("hydrant", "other")
+
+    if time_based:
+        mode = "target_time"
+        if purpose == "other":
+            target_min = 30
+        else:
+            target_min = hydrant_target_min
+        allow_range = 10
         target_min_low = target_min - allow_range
         target_min_high = target_min + allow_range
         seg_max_km = seg_max_min = None
+        max_per_route = 25
+        max_routes_cap = 0
+        st.caption(f"목표 {target_min}분/노선 기준으로 자동 편성합니다 (노선 내 대상 수 제한 없음).")
+    else:
+        st.markdown("**가. 기준 방식**")
+        mode_label = st.pills("기준 방식", ["구간별 제한", "노선 전체 목표시간"],
+                               default="구간별 제한", label_visibility="collapsed")
+        mode = "segment" if mode_label == "구간별 제한" else "target_time"
 
-    max_routes_cap = st.number_input("전체 노선 개수 상한(0=무제한)", min_value=0, value=0)
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            max_per_route = st.number_input("노선당 최대 대상 수", min_value=1, max_value=30, value=4)
+        with cc2:
+            max_routes_cap = st.number_input("전체 노선 개수 상한(0=무제한)", min_value=0, value=0)
 
-    st.header("③ 장거리 분리 기준")
+        if mode == "segment":
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                seg_max_km = st.number_input("구간당 최대 거리(km)", min_value=1.0, value=7.0, step=0.5)
+            with sc2:
+                seg_max_min = st.number_input("구간당 최대 시간(분)", min_value=1, value=10)
+            target_min = target_min_low = target_min_high = None
+        else:
+            target_min = st.number_input("목표 왕복시간(분)", min_value=10, value=60)
+            allow_range = st.slider("허용 범위(분, ±)", 0, 60, 15)
+            target_min_low = target_min - allow_range
+            target_min_high = target_min + allow_range
+            seg_max_km = seg_max_min = None
+
+    st.markdown("**나. 장거리 분리 기준**")
     long_threshold = st.number_input("소방서 실제 도로거리(km) 초과 시 별도 표시", min_value=1.0, value=15.0)
 
-st.subheader("주소 파일 업로드")
-uploaded = st.file_uploader("CSV 또는 Excel 파일 (주소 컬럼 포함)", type=["csv", "xlsx", "xls"])
+st.write("")
 
-use_sample = st.checkbox("샘플 데이터로 테스트 (성주읍·월항면 마을회관 30개소)", value=uploaded is None)
+with st.container(border=True):
+    st.markdown("##### 3 · 대상 목록 업로드")
+    uploaded = st.file_uploader("CSV 또는 Excel 파일 (주소 컬럼 포함)", type=["csv", "xlsx", "xls"])
+    use_sample = st.checkbox("샘플 데이터로 테스트 (성주읍·월항면 마을회관 30개소)", value=uploaded is None)
 
 df = None
 if uploaded is not None:
@@ -235,21 +355,27 @@ elif use_sample:
         df = df[df["연번"] != 0].reset_index(drop=True)
 
 if df is not None:
-    st.write("업로드된 데이터 미리보기")
-    st.dataframe(df.head(10), use_container_width=True)
+    st.write("")
+    with st.container(border=True):
+        st.markdown("##### 4 · 업로드된 데이터 미리보기 · 노선 생성")
+        st.dataframe(df.head(10), use_container_width=True)
 
-    cols = list(df.columns)
-    name_col = st.selectbox("이름(주소지) 컬럼", cols, index=0)
-    addr_col = st.selectbox(
-        "지오코딩에 사용할 주소 컬럼", cols, index=min(3, len(cols) - 1)
-    )
-    lat_col_guess = next((c for c in cols if "위도" in c or c.lower() == "lat"), None)
-    lng_col_guess = next((c for c in cols if "경도" in c or c.lower() in ("lng", "lon")), None)
-    use_existing_coords = st.checkbox(
-        "파일에 이미 위·경도가 있으면 재지오코딩 없이 사용", value=bool(lat_col_guess and lng_col_guess)
-    )
+        cols = list(df.columns)
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            name_col = st.selectbox("이름(주소지) 컬럼", cols, index=0)
+        with pc2:
+            addr_col = st.selectbox(
+                "지오코딩에 사용할 주소 컬럼", cols, index=min(3, len(cols) - 1)
+            )
+        lat_col_guess = next((c for c in cols if "위도" in c or c.lower() == "lat"), None)
+        lng_col_guess = next((c for c in cols if "경도" in c or c.lower() in ("lng", "lon")), None)
+        use_existing_coords = st.checkbox(
+            "파일에 이미 위·경도가 있으면 재지오코딩 없이 사용", value=bool(lat_col_guess and lng_col_guess)
+        )
 
-    run = st.button("🚀 노선 생성 (실제 지오코딩 · 실도로거리 계산)", type="primary", disabled=not has_keys())
+        run = st.button("🚀 노선 생성 (실제 지오코딩 · 실도로거리 계산)", type="primary",
+                         disabled=not has_keys(), use_container_width=True)
 
     if run:
         # 1) 소방서 좌표
@@ -313,8 +439,20 @@ if df is not None:
                 km, _ = real_leg(station, p)
                 far_points.append({**p, "도로거리_km": round(km, 1)})
 
-        st.success(f"총 {len(routes)}개 노선, {sum(len(r) for r in routes)}개소 배정 완료 "
-                   f"(장거리 별도 {len(far_points)}개소)")
+        team_info = ""
+        if purpose == "hydrant" and hydrant_teams:
+            rounds_needed = math.ceil(len(routes) / hydrant_teams) if routes else 0
+            team_info = f" · 팀 {hydrant_teams}개 기준 팀당 {rounds_needed}회"
+        elif purpose == "other" and other_teams:
+            rounds_needed = math.ceil(len(routes) / other_teams) if routes else 0
+            team_info = f" · 팀 {other_teams}개 기준 팀당 {rounds_needed}회"
+        elif purpose == "guard" and guard_repeat_label == "매일 같은 코스 반복" and guard_rounds:
+            team_info = f" · 매일 같은 코스로 하루 {guard_rounds} 반복"
+        elif purpose == "guard":
+            team_info = " · 매일 다른 코스로 순환"
+
+        st.success(f"[{purpose_label}] 총 {len(routes)}개 노선, {sum(len(r) for r in routes)}개소 배정 완료 "
+                   f"(장거리 별도 {len(far_points)}개소){team_info}")
 
         # 5) 확정 노선의 구간별 실도로거리·경로좌표 (이미 계산된 값은 캐시로 재사용됨)
         route_results = []
