@@ -980,14 +980,6 @@ st.write("")
 # 1 · 순찰 방법(노선 용도)
 # ----------------------------------------------------------------------------
 PURPOSE_OPTIONS = [
-    "① 특별경계근무용", "② 계절순찰", "③ 예방검사", "④ 지리조사(센터용)", "⑤ 지휘관 현장방문",
-]
-PURPOSE_HINT = {
-    "① 특별경계근무용": "명절·선거·축제 등 특별경계근무 — 휴무 공장과 터미널·역·공항·행사장 등 주요 대상을 하루 1~2회 반복 순찰합니다.",
-    "② 계절순찰": "봄·가을·겨울 산림인접 대상과 여름 풍수해 대상을 매일 약 1시간씩 다른 구간으로 순찰합니다.",
-    "③ 예방검사": "숙박업소 등 점검 순찰.",
-    "④ 지리조사(센터용)": "소화전 등 팀별 순회 — 팀 수·목표시간 기준으로 노선수를 자동 산출합니다.",
-    "⑤ 지휘관 현장방문": "풍수해·산불·재난지역 등 모든 현장을 하루에 실제 도로거리순으로 방문합니다.",
     "① 지휘관 현장방문", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
 ]
 PURPOSE_HINT = {
@@ -1005,10 +997,6 @@ with st.container(border=True):
     if not purpose_label:
         purpose_label = PURPOSE_OPTIONS[0]
     st.caption(PURPOSE_HINT.get(purpose_label, ""))
-    purpose = {
-        "① 특별경계근무용": "guard", "② 계절순찰": "season", "③ 예방검사": "inspect",
-        "④ 지리조사(센터용)": "hydrant", "⑤ 지휘관 현장방문": "other",
-    }.get(purpose_label, "guard")
     purpose = {
         "① 지휘관 현장방문": "other", "② 특별경계근무용": "guard",
         "③ 계절순찰": "season", "④ 예방검사": "inspect",
@@ -2059,7 +2047,6 @@ if "route_results" in st.session_state:
     m1.metric("생성 노선 수", f"{len(route_results)}")
     m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
     m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
-    m4.metric("원거리 위임 권장" if meta.get("purpose") == "② 계절순찰" else "원거리 분리 대상",
     m4.metric("원거리 위임 권장" if meta.get("purpose") == "③ 계절순찰" else "원거리 분리 대상",
               f"{len(far_points)}")
 
@@ -2238,7 +2225,6 @@ if "route_results" in st.session_state:
         team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
         over_mark = " ⏱초과" if target_min_ref and rr["total_min"] > target_min_ref else ""
         hydrant_label = ""
-        if meta.get("purpose") == "④ 지리조사(센터용)" and rr.get("vehicle_no"):
         if meta.get("purpose") == "⑤ 지리조사(센터용)" and rr.get("vehicle_no"):
             members = ", ".join(rr.get("assigned_members") or [])
             hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
@@ -2254,7 +2240,6 @@ if "route_results" in st.session_state:
                         "순번": str(i), "지점": stop_label(leg["to"], leg.get("to_address")),
                         "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
                     }
-                    if meta.get("purpose") == "④ 지리조사(센터용)":
                     if meta.get("purpose") == "⑤ 지리조사(센터용)":
                         row["담당"] = leg.get("assigned_to", "")
                         row["조사시간(분)"] = leg.get("inspection_min", 0)
@@ -2367,7 +2352,6 @@ if "route_results" in st.session_state:
                 st_folium(m, height=350, use_container_width=True, key=f"map_{rr['route_no']}")
 
     if far_points:
-        is_season_far = meta.get("purpose") == "② 계절순찰"
         is_season_far = meta.get("purpose") == "③ 계절순찰"
         st.header("🚙 원거리 위임 권장 대상" if is_season_far else "⚠️ 장거리 별도 대상")
         far_df = pd.DataFrame(far_points)
