@@ -44,20 +44,83 @@ def has_keys():
 # NCP API 호출
 # ----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
-def geocode_address(address: str):
-    """주소 -> (lat, lng). 실패 시 (None, None)."""
+def geocode_once(address: str):
+    """주소 -> (lat, lng, 상태). 상태: "ok" | "not_found" | "error:..." """
     try:
         r = requests.get(
             GEOCODE_URL, params={"query": address}, headers=ncp_headers(), timeout=10
         )
+        if r.status_code != 200:
+            return None, None, f"error:HTTP {r.status_code}"
         data = r.json()
         addrs = data.get("addresses") or []
         if addrs:
             a = addrs[0]
-            return float(a["y"]), float(a["x"])
-        return None, None
-    except Exception:
-        return None, None
+            return float(a["y"]), float(a["x"]), "ok"
+        return None, None, "not_found"
+    except Exception as e:
+        return None, None, f"error:{type(e).__name__}"
+
+
+def geocode_address(address: str):
+    """기존 호출부 호환용 — (lat, lng)만 반환."""
+    lat, lng, _ = geocode_once(address)
+    return lat, lng
+
+
+def address_variants(address: str, name: str = ""):
+    """지오코딩이 실패했을 때 순서대로 다시 시도할 주소 후보들을 만든다.
+
+    행정리('성산1리')는 지오코딩이 인식하지 못하는 경우가 많아
+    법정리('성산리')로 바꾸는 것이 가장 중요한 보정이다.
+    """
+    address = (address or "").strip()
+    cands = []
+
+    def add(v, why):
+        v = re.sub(r"\s+", " ", (v or "")).strip()
+        if v and all(v != c[0] for c in cands):
+            cands.append((v, why))
+
+    add(address, "원본 주소")
+
+    # 1) 행정리 번호 제거: 성산1리 → 성산리, 경산8리 → 경산리
+    v1 = re.sub(r"([가-힣]+?)\d+리(?=\s|$)", r"\1리", address)
+    add(v1, "행정리→법정리 (성산1리→성산리)")
+
+    # 2) 괄호와 그 안의 내용 제거
+    v2 = re.sub(r"\([^)]*\)", " ", v1)
+    add(v2, "괄호 제거")
+
+    # 3) 지번의 부번 제거: 540-1 → 540
+    v3 = re.sub(r"(\d+)-\d+(?=\s|$)", r"\1", v2)
+    add(v3, "지번 부번 제거 (540-1→540)")
+
+    # 4) 번지 자체를 떼고 리(동) 중심으로: … 성산리 1805 → … 성산리
+    v4 = re.sub(r"\s+\d+(-\d+)?\s*$", "", v3)
+    add(v4, "번지 제외 (리·동 중심 좌표)")
+
+    # 5) 대상명 안 괄호에 들어 있는 주소를 활용: 차동골 마을회관 (성주읍 성산1리 1805)
+    m = re.search(r"\(([^)]*)\)", name or "")
+    if m:
+        inner = re.sub(r"([가-힣]+?)\d+리(?=\s|$)", r"\1리", m.group(1))
+        add(f"경상북도 성주군 {inner}", "대상명 속 주소 사용")
+        add(re.sub(r"\s+\d+(-\d+)?\s*$", "", f"경상북도 성주군 {inner}"), "대상명 속 주소(번지 제외)")
+
+    return cands
+
+
+def geocode_with_fallback(address: str, name: str = "", on_call=None):
+    """여러 주소 형태로 순차 시도. 반환: (lat, lng, 성공에 쓴 주소, 방법, 시도내역)"""
+    tried = []
+    for query, why in address_variants(address, name):
+        lat, lng, status = geocode_once(query)
+        if on_call:
+            on_call()
+        tried.append(f"{why}: {query} → {status}")
+        if status == "ok":
+            return lat, lng, query, why, tried
+    return None, None, None, None, tried
 
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
@@ -179,7 +242,7 @@ def nearest_by_straight_line(cur, candidates, k):
 
 def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
                  target_min_high, max_routes_cap, basis="distance", on_call=None,
-                 candidate_k=5):
+                 candidate_k=5, should_stop=None):
     """points: list of dict(name, address, lat, lng)
     반환: routes(list of list of point dict), unassigned(장거리/미배정)
 
@@ -189,18 +252,24 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
       "fixed"       — 노선당 구간 수(max_per_route)를 그대로 채움 (노선 수 = 상한까지)
     basis: "distance"(거리 기준) | "time"(소요시간 기준)
     candidate_k: 다음 지점 후보를 직선거리로 몇 개까지 좁혀서 실제 API로 확인할지 (0=전수)
+    should_stop: 호출 한도 초과 등으로 중단해야 하는지 판단하는 함수.
+                 중단되면 그때까지 편성된 노선만 반환한다(진행분 보존).
     """
     remaining = points[:]
     routes = []
 
     guard = 0
     while remaining and guard < 500:
+        if should_stop and should_stop():
+            break
         guard += 1
         cur = station
         route = []
         acc_min = 0.0
 
         while remaining:
+            if should_stop and should_stop():
+                break
             # 1차: 직선거리로 후보 좁히기 → 2차: 좁혀진 후보만 실도로 거리/시간 확인
             candidates = nearest_by_straight_line(cur, remaining, candidate_k)
             legs = [(p, *real_leg(cur, p, on_call)) for p in candidates]
@@ -248,7 +317,8 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
     return routes, remaining
 
 
-def separate_long_distance(points, station, threshold_km, on_call=None, save_calls=True):
+def separate_long_distance(points, station, threshold_km, on_call=None, save_calls=True,
+                           should_stop=None):
     """소방서에서 실도로거리가 기준을 넘는 대상을 분리한다.
 
     save_calls=True면 직선거리 추정값이 기준에서 충분히 멀리 떨어진(애매하지 않은)
@@ -258,6 +328,13 @@ def separate_long_distance(points, station, threshold_km, on_call=None, save_cal
     for p in points:
         straight = haversine_km((station["lat"], station["lng"]), (p["lat"], p["lng"]))
         est = straight * ROAD_FACTOR
+
+        if should_stop and should_stop():
+            # 한도 초과 — 남은 대상은 추정값으로 분류하고 API 호출은 더 하지 않는다
+            (far if est > threshold_km else normal).append(
+                {**p, "도로거리_km": round(est, 1)} if est > threshold_km else p
+            )
+            continue
 
         if save_calls and est < threshold_km * 0.7:
             normal.append(p)          # 확실히 가까움 — API 호출 생략
@@ -646,6 +723,12 @@ with st.container(border=True):
     else:
         candidate_k = 0
 
+    max_calls = st.number_input(
+        "최대 API 호출 수 (초과하면 자동으로 중단합니다)", min_value=50, max_value=100000,
+        value=1500, step=100,
+        help="여기까지만 호출하고 멈춥니다. 중단되어도 그때까지 편성된 노선은 그대로 볼 수 있습니다.",
+    )
+
 st.write("")
 
 # ----------------------------------------------------------------------------
@@ -712,26 +795,75 @@ if df is not None and len(df):
 
         lat_col_guess = next((c for c in cols if "위도" in str(c) or str(c).lower() == "lat"), None)
         lng_col_guess = next((c for c in cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
-        use_existing_coords = st.checkbox(
-            "파일에 이미 위·경도가 있으면 재지오코딩 없이 사용", value=bool(lat_col_guess and lng_col_guess)
-        )
+        has_coords = bool(lat_col_guess and lng_col_guess)
+
+        sub_label("좌표 처리 방식")
+        if has_coords:
+            coord_mode_label = st.pills(
+                "좌표 처리 방식",
+                ["주소로 새로 찾기(권장)", "파일 좌표 + 검증", "파일 좌표 그대로 사용"],
+                default="주소로 새로 찾기(권장)", label_visibility="collapsed",
+            ) or "주소로 새로 찾기(권장)"
+            coord_mode = {
+                "주소로 새로 찾기(권장)": "geocode",
+                "파일 좌표 + 검증": "verify",
+                "파일 좌표 그대로 사용": "file",
+            }[coord_mode_label]
+            st.caption({
+                "geocode": "파일의 위·경도는 무시하고 주소만 보고 NCP Geocoding으로 좌표를 새로 찾습니다. "
+                           "가장 정확하며, 다른 도구로 만든 좌표가 틀렸을 때 이 방식으로 바로잡을 수 있습니다.",
+                "verify": "파일 좌표와 NCP가 찾은 좌표를 비교해, 차이가 큰 항목은 NCP 좌표로 바꾸고 목록으로 알려줍니다.",
+                "file": "파일에 적힌 좌표를 그대로 씁니다. 호출은 가장 적지만 좌표가 틀려도 걸러지지 않습니다.",
+            }[coord_mode])
+            if coord_mode == "verify":
+                verify_tol_km = st.number_input("검증 허용 오차(km) — 이보다 많이 다르면 NCP 좌표로 교체",
+                                                min_value=0.1, value=1.0, step=0.5)
+            else:
+                verify_tol_km = 1.0
+        else:
+            coord_mode = "geocode"
+            verify_tol_km = 1.0
+            st.caption("파일에 위·경도가 없어 주소로 좌표를 찾습니다(NCP Geocoding).")
+
 
         # 실행 전 예상 API 호출량 안내 (요금·시간 가늠용)
         n_targets = len(df)
+        geo_calls = 0 if coord_mode == "file" else n_targets   # 주소→좌표 변환 호출
         if candidate_k:
-            est_calls = n_targets * candidate_k + n_targets  # 후보 확인 + 장거리 판정(일부)
+            est_calls = geo_calls + n_targets * candidate_k + n_targets
         else:
-            est_calls = n_targets * (n_targets + 1) // 2 + n_targets
+            est_calls = geo_calls + n_targets * (n_targets + 1) // 2 + n_targets
         est_sec = int(est_calls * 0.25)
         st.info(f"대상 {n_targets}개소 · 예상 NCP 호출 약 **{est_calls:,}회** "
                 f"(예상 소요 약 {est_sec // 60}분 {est_sec % 60}초). "
                 + ("‘API 호출 절약’이 켜져 있습니다." if candidate_k
                    else "⚠ ‘API 호출 절약’이 꺼져 있어 호출량이 많습니다."))
 
+        st.caption(f"⛔ 최대 {max_calls:,}회까지만 호출하고 자동으로 멈춥니다. "
+                   "계산 도중 아래 '중단' 버튼을 눌러 즉시 멈출 수도 있습니다.")
+
         run = st.button("🚀 노선 생성 (실제 지오코딩 · 실도로거리 계산)", type="primary",
                         disabled=not has_keys(), use_container_width=True)
 
     if run:
+        # ---- 중단 장치 ----------------------------------------------------
+        # ① 수동 중단: 아래 '중단' 버튼을 누르면 Streamlit이 새로 실행되면서
+        #    지금 돌고 있는 계산이 즉시 멈춘다.
+        # ② 자동 중단: 호출 수가 한도(max_calls)를 넘으면 그때까지 만든 노선만 남기고 멈춘다.
+        stop_box = st.container()
+        with stop_box:
+            st.button("⛔ 계산 중단", key="stop_btn", type="secondary",
+                      help="지금 진행 중인 노선 생성을 즉시 멈춥니다.")
+
+        call_counter = {"n": 0}
+        limit_hit = {"v": False}
+
+        def over_limit():
+            if call_counter["n"] >= max_calls:
+                limit_hit["v"] = True
+                return True
+            return False
+
         # 1) 소방서 좌표
         with st.spinner("소방서 좌표 확인 중..."):
             s_lat, s_lng = geocode_address(station_address)
@@ -740,19 +872,56 @@ if df is not None and len(df):
             st.stop()
         station = {"name": station_name, "lat": s_lat, "lng": s_lng}
 
-        # 2) 대상지 지오코딩
+        # 2) 대상지 좌표 확보 (주소로 찾기 / 파일 좌표 검증 / 파일 좌표 그대로)
         points = []
+        mismatches = []          # 파일 좌표와 NCP 좌표가 크게 다른 항목
+        geo_failures = []        # 끝까지 좌표를 못 찾은 항목
+        geo_fixed = []           # 재시도(2차·3차)로 찾아낸 항목
         progress = st.progress(0.0, text="주소 지오코딩 중...")
         n = len(df)
         for i, (_, row) in enumerate(df.iterrows()):
-            if use_existing_coords and lat_col_guess and lng_col_guess:
-                lat, lng = row[lat_col_guess], row[lng_col_guess]
+            file_lat = file_lng = None
+            if lat_col_guess and lng_col_guess:
                 try:
-                    lat, lng = float(lat), float(lng)
+                    file_lat = float(row[lat_col_guess])
+                    file_lng = float(row[lng_col_guess])
+                    if math.isnan(file_lat) or math.isnan(file_lng):
+                        file_lat = file_lng = None
                 except (TypeError, ValueError):
-                    lat, lng = geocode_address(str(row[addr_col]))
+                    file_lat = file_lng = None
+
+            if coord_mode == "file" and file_lat is not None:
+                lat, lng = file_lat, file_lng
             else:
-                lat, lng = geocode_address(str(row[addr_col]))
+                # 1차 원본 주소 → 실패 시 2차·3차(행정리→법정리, 번지 제외 등)로 재시도
+                lat, lng, used_query, used_why, tried = geocode_with_fallback(
+                    str(row[addr_col]), str(row[name_col])
+                )
+                if lat is not None and used_why and used_why != "원본 주소":
+                    geo_fixed.append({
+                        "대상": str(row[name_col]), "원래 주소": str(row[addr_col]),
+                        "성공한 주소": used_query, "보정 방법": used_why,
+                    })
+                if lat is None:
+                    geo_failures.append({
+                        "대상": str(row[name_col]), "주소": str(row[addr_col]),
+                        "시도한 주소와 결과": " / ".join(tried),
+                        "파일 좌표 사용": "예" if file_lat is not None else "아니오(제외됨)",
+                    })
+                if lat is None and file_lat is not None:
+                    lat, lng = file_lat, file_lng     # 지오코딩 실패 시 파일 좌표로 대체
+                elif (coord_mode == "verify" and lat is not None and file_lat is not None):
+                    gap = haversine_km((file_lat, file_lng), (lat, lng))
+                    if gap > verify_tol_km:
+                        mismatches.append({
+                            "대상": str(row[name_col]), "주소": str(row[addr_col]),
+                            "차이(km)": round(gap, 1),
+                            "파일 좌표": f"{file_lat:.6f}, {file_lng:.6f}",
+                            "NCP 좌표": f"{lat:.6f}, {lng:.6f}",
+                        })
+                    else:
+                        lat, lng = file_lat, file_lng  # 오차 이내면 파일 좌표 유지
+
             if lat is not None and not (isinstance(lat, float) and math.isnan(lat)):
                 points.append(
                     {"name": str(row[name_col]), "address": str(row[addr_col]),
@@ -761,39 +930,56 @@ if df is not None and len(df):
             progress.progress((i + 1) / n, text=f"주소 지오코딩 중... ({i+1}/{n})")
         progress.empty()
 
-        failed = n - len(points)
-        if failed:
-            st.warning(f"{failed}건은 지오코딩에 실패해 제외되었습니다.")
+        # 지오코딩 결과 요약은 세션에 저장해 화면이 갱신돼도 사라지지 않게 한다
+        st.session_state["geo_report"] = {
+            "total": n, "ok": len(points),
+            "failures": geo_failures, "fixed": geo_fixed,
+        }
+
+        if mismatches:
+            st.warning(f"📍 파일의 위·경도와 실제 주소 좌표가 {verify_tol_km}km 넘게 다른 항목이 "
+                       f"{len(mismatches)}건 있어 **NCP 좌표로 교체**했습니다. "
+                       "다른 도구로 만든 좌표가 부정확했을 가능성이 큽니다.")
+            with st.expander("좌표가 달랐던 항목 보기", expanded=False):
+                st.dataframe(pd.DataFrame(mismatches), use_container_width=True, hide_index=True)
 
         # 3) 장거리 분리 (실도로거리 기준)
-        call_counter = {"n": 0}
         long_progress = st.progress(0.0, text="소방서 기준 실도로거리 확인 중...")
 
         def bump(total_hint=len(points)):
             call_counter["n"] += 1
             long_progress.progress(min(call_counter["n"] / max(total_hint, 1), 1.0),
-                                   text=f"실제 도로거리 API 호출 중... ({call_counter['n']}건)")
+                                   text=f"실제 도로거리 API 호출 중... "
+                                        f"({call_counter['n']:,}/{max_calls:,}회)")
 
         normal_points, far_points = separate_long_distance(
-            points, station, long_threshold, on_call=bump, save_calls=bool(candidate_k)
+            points, station, long_threshold, on_call=bump, save_calls=bool(candidate_k),
+            should_stop=over_limit,
         )
         long_progress.empty()
 
         # 4) 노선 편성
-        call_counter["n"] = 0
         build_progress = st.empty()
 
         def bump_build():
             call_counter["n"] += 1
-            build_progress.text(f"실도로 기준 노선 편성 중... (API 호출 {call_counter['n']}건)")
+            build_progress.text(f"실도로 기준 노선 편성 중... "
+                                f"(API 호출 {call_counter['n']:,}/{max_calls:,}회)")
 
         routes, unassigned = build_routes(
             normal_points, station, mode, max_per_route,
             seg_max_km, seg_max_min, target_min_high,
             max_routes_cap or None, basis=basis, on_call=bump_build,
-            candidate_k=candidate_k,
+            candidate_k=candidate_k, should_stop=over_limit,
         )
         build_progress.empty()
+
+        if limit_hit["v"]:
+            st.warning(
+                f"⛔ API 호출 한도({max_calls:,}회)에 도달해 노선 편성을 중단했습니다. "
+                f"그때까지 편성된 {len(routes)}개 노선은 아래에 그대로 표시됩니다. "
+                "한도를 늘리거나 'API 호출 절약'을 켜고 다시 실행해 보세요."
+            )
 
         if unassigned:
             for p in unassigned:
@@ -873,6 +1059,37 @@ if df is not None and len(df):
 # ----------------------------------------------------------------------------
 # 결과 표시
 # ----------------------------------------------------------------------------
+if st.session_state.get("stop_btn"):
+    st.info("⛔ 계산을 중단했습니다. (중단 시점까지의 계산 결과는 저장되지 않습니다. "
+            "직전에 완료된 결과가 있으면 아래에 그대로 남아 있습니다.)")
+
+# ---- 지오코딩 결과 리포트 (화면이 갱신돼도 남아 있음) ----
+_geo = st.session_state.get("geo_report")
+if _geo:
+    st.write("")
+    with st.container(border=True):
+        card_title("📍", "주소 → 좌표 변환 결과")
+        gc1, gc2, gc3 = st.columns(3)
+        gc1.metric("전체 대상", f"{_geo['total']}")
+        gc2.metric("좌표 확보", f"{_geo['ok']}")
+        gc3.metric("실패", f"{len(_geo['failures'])}")
+
+        if _geo["fixed"]:
+            st.success(f"✅ {len(_geo['fixed'])}건은 처음 주소로는 못 찾았지만, "
+                       "주소를 보정해서(예: 성산1리 → 성산리) 좌표를 찾아냈습니다.")
+            with st.expander(f"보정해서 찾은 {len(_geo['fixed'])}건 보기"):
+                st.dataframe(pd.DataFrame(_geo["fixed"]), use_container_width=True, hide_index=True)
+
+        if _geo["failures"]:
+            st.error(f"❌ {len(_geo['failures'])}건은 여러 형태로 다시 시도했지만 좌표를 찾지 못했습니다. "
+                     "아래에서 어떤 주소로 시도했고 왜 실패했는지 확인하실 수 있습니다.")
+            st.dataframe(pd.DataFrame(_geo["failures"]), use_container_width=True, hide_index=True)
+            st.caption("💡 대부분 주소 표기 문제입니다. 정제_주소 칸을 도로명주소나 법정리 지번"
+                       "(예: '경상북도 성주군 성주읍 성산리 1805')으로 고쳐서 다시 올려보세요. "
+                       "'not_found'는 주소를 못 찾은 것이고, 'error:...'는 통신·인증 문제입니다.")
+        elif _geo["ok"] == _geo["total"]:
+            st.success("✅ 모든 대상의 좌표를 정상적으로 찾았습니다.")
+
 if "route_results" in st.session_state:
     station = st.session_state["station"]
     route_results = st.session_state["route_results"]
