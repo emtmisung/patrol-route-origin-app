@@ -1,11 +1,15 @@
 import io
 import math
-import time
+import re
+import zipfile
+from datetime import datetime, date, time as dtime
+from urllib.parse import quote
 
 import folium
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
 # ----------------------------------------------------------------------------
@@ -20,6 +24,8 @@ NCP_KEY = st.secrets.get("NCP_CLIENT_SECRET", "")
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
+
+SAMPLE_CSV = "seongju_patrol_coordinates_updated_modified.csv"
 
 
 def ncp_headers():
@@ -96,6 +102,51 @@ def haversine_km(a, b):
 
 
 # ----------------------------------------------------------------------------
+# 한글(hwpx) 표 파싱 — 데모(웹 프로토타입)와 동일한 방식
+# ----------------------------------------------------------------------------
+HEADER_WORDS = re.compile(r"^(연번|no\.?|번호|구분|이름|명칭|대상명|대상명주소|주소|정제_주소|비고)$", re.I)
+
+
+def _clean_xml_text(s: str) -> str:
+    s = re.sub(r"<[^>]+>", "", s)
+    return (s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+             .replace("&quot;", '"').replace("&apos;", "'").strip())
+
+
+def parse_hwpx(file_bytes: bytes):
+    """hwpx 안의 표(또는 문단)를 읽어 DataFrame으로 반환."""
+    rows = []
+    with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+        for name in zf.namelist():
+            if not re.search(r"Contents/section\d*\.xml$", name, re.I):
+                continue
+            xml = zf.read(name).decode("utf-8", errors="ignore")
+            table_rows = re.findall(r"<hp:tr[\s>][\s\S]*?</hp:tr>", xml)
+            if table_rows:
+                for row_xml in table_rows:
+                    cells = re.findall(r"<hp:tc[\s>][\s\S]*?</hp:tc>", row_xml)
+                    cols = [_clean_xml_text("".join(re.findall(r"<hp:t[^>]*>([\s\S]*?)</hp:t>", c)))
+                            for c in cells]
+                    if any(cols):
+                        rows.append(cols)
+            else:
+                for chunk in xml.split("<hp:p")[1:]:
+                    text = _clean_xml_text("".join(re.findall(r"<hp:t[^>]*>([\s\S]*?)</hp:t>", chunk)))
+                    if text:
+                        rows.append([text])
+
+    rows = [r for r in rows if r and not HEADER_WORDS.match((r[0] or "").strip())]
+    if not rows:
+        return None
+
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    default_names = ["연번", "주소지", "비고", "정제_주소", "위도(Latitude)", "경도(Longitude)"]
+    cols = default_names[:width] + [f"열{i}" for i in range(len(default_names) + 1, width + 1)]
+    return pd.DataFrame(rows, columns=cols[:width])
+
+
+# ----------------------------------------------------------------------------
 # 경로 편성 알고리즘 (최근접 이웃 기반, 소방서 출발/복귀)
 # 거리·시간 판단은 전부 NCP Directions5의 실제 도로거리를 사용한다.
 # (직선거리는 API 호출이 실패했을 때만 비상 대체값으로 쓰인다)
@@ -112,10 +163,11 @@ def real_leg(a, b, on_call=None):
 
 
 def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
-                  target_min_high, max_routes_cap, on_call=None):
+                 target_min_high, max_routes_cap, basis="distance", on_call=None):
     """points: list of dict(name, address, lat, lng)
     반환: routes(list of list of point dict), unassigned(장거리/미배정)
-    매 단계마다 NCP Directions5 실도로거리로 다음 방문지를 선택한다.
+    매 단계마다 NCP Directions5 실도로거리(또는 실소요시간)로 다음 방문지를 선택한다.
+    basis: "distance"(거리 기준) | "time"(소요시간 기준)
     """
     remaining = points[:]
     routes = []
@@ -128,20 +180,25 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
         acc_min = 0.0
 
         while remaining:
-            # 실도로거리 기준 가장 가까운 다음 지점 선택
+            # 실도로 기준 가장 가까운 다음 지점 선택 (거리 또는 소요시간 기준)
             legs = [(p, *real_leg(cur, p, on_call)) for p in remaining]
-            legs.sort(key=lambda t: t[1])  # km 기준 정렬
+            legs.sort(key=(lambda t: t[2]) if basis == "time" else (lambda t: t[1]))
             nxt, leg_km, leg_min = legs[0]
 
+            # 노선의 첫 지점은 제한값을 적용하지 않는다.
+            # (소방서에서 가장 가까운 대상까지의 거리가 이미 제한값보다 크면
+            #  어떤 노선도 못 만들고 전부 '장거리'로 빠지는 문제를 막기 위함)
+            first_stop = not route
+
             if mode == "segment":
-                if leg_km > seg_max_km or leg_min > seg_max_min:
+                if not first_stop and (leg_km > seg_max_km or leg_min > seg_max_min):
                     break
                 if len(route) >= max_per_route:
                     break
             else:  # target_time
                 back_km, back_min = real_leg(nxt, station, on_call)
                 projected = acc_min + leg_min + back_min
-                if route and projected > target_min_high:
+                if not first_stop and projected > target_min_high:
                     break
                 if len(route) >= max_per_route:
                     break
@@ -178,49 +235,165 @@ def separate_long_distance(points, station, threshold_km, on_call=None):
 
 
 # ----------------------------------------------------------------------------
-# UI — 파세루 데모(claude.ai 프로토타입)와 같은 카드+칩 스타일로 구성
+# UI — 파세루 데모(웹 프로토타입)와 같은 카드+칩 스타일
 # ----------------------------------------------------------------------------
 PASERU_CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Noto+Serif+KR:wght@600;700&family=IBM+Plex+Mono:wght@500;700&display=swap');
+
 :root{
-  --accent:#c23c2c; --accent-soft:#f4ddd8; --line:#d7ddd2; --surface:#ffffff; --bg:#f1f4f0;
+  --accent:#c23c2c; --accent-hover:#a32f22; --accent-soft:#f4ddd8;
+  --line:#d7ddd2; --surface:#ffffff; --bg:#f1f4f0; --ink:#1c2420; --muted:#5c6660;
 }
 .stApp{ background: var(--bg); }
-h1, h2, h3 { font-weight: 800 !important; }
-[data-testid="stTitle"], h1 { color:#1c2420; }
-/* 카드 컨테이너(border=True) 스타일 */
+html, body, [class*="css"], .stMarkdown, .stTextInput, .stNumberInput{
+  font-family:'Noto Sans KR', -apple-system, 'Malgun Gothic', sans-serif;
+}
+h1, h2, h3, h4, h5, h6{
+  font-family:'Noto Serif KR', serif !important; color: var(--ink) !important; font-weight:700 !important;
+}
+.block-container{ padding-top: 2.2rem; max-width: 1180px; }
+
+/* ---- 카드 컨테이너(border=True) ---- */
 div[data-testid="stVerticalBlockBorderWrapper"]{
   background: var(--surface);
   border-radius: 14px !important;
   border: 1px solid var(--line) !important;
-  box-shadow: 0 1px 2px rgba(28,36,32,.06), 0 8px 24px -12px rgba(28,36,32,.18);
-  padding: 4px 6px;
+  box-shadow: 0 1px 2px rgba(28,36,32,.06), 0 10px 26px -14px rgba(28,36,32,.22);
+  padding: 10px 16px 14px;
+  margin-bottom: 6px;
 }
-/* pills(칩) 선택 위젯을 카드형 버튼처럼 */
-div[data-testid="stPills"] label{
-  border-radius: 10px !important;
+
+/* ---- 카드 제목 + 번호 뱃지 ---- */
+.paseru-card-title{
+  display:flex; align-items:center; gap:9px;
+  font-family:'Noto Serif KR', serif; font-size:17px; font-weight:700; color:var(--ink);
+  margin: 2px 0 10px;
 }
-/* 기본 버튼(노선 생성하기)을 브랜드 레드로 강조 */
-div.stButton > button, div.stFormSubmitter > button, .stDownloadButton > button{
-  background-color: var(--accent) !important;
-  color: #fff !important;
-  border: none !important;
-  border-radius: 10px !important;
-  font-weight: 700 !important;
-  padding: 0.7em 1em !important;
+.paseru-step{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:23px; height:23px; border-radius:50%;
+  background:var(--accent); color:#fff;
+  font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:700; flex:none;
 }
-div.stButton > button:hover, .stDownloadButton > button:hover{
-  background-color: #a32f22 !important;
-  color: #fff !important;
-}
-/* 헤더 아이콘 뱃지 느낌 */
+.paseru-sub{ font-weight:700; font-size:13.5px; color:var(--ink); margin:14px 0 6px; }
 .paseru-eyebrow{
-  font-family: monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--accent); font-weight: 700; margin-bottom: 2px;
+  font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--accent); font-weight:700; margin-bottom:2px;
 }
+
+/* ---- pills(칩) : 선택 시 브랜드 레드로 채움 ---- */
+button[data-variant="pills"]{
+  border-radius: 999px !important;
+  border: 1px solid var(--line) !important;
+  background: #e9ede6 !important;
+  color: var(--ink) !important;
+  font-weight: 600 !important;
+  padding: 0.42em 1.05em !important;
+  transition: background .12s, border-color .12s, color .12s;
+}
+button[data-variant="pills"]:hover{ border-color: var(--accent) !important; }
+button[data-variant="pills"][data-selected="true"],
+button[data-variant="pills"][aria-checked="true"],
+button[data-variant="pills"][aria-pressed="true"]{
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 12px -6px rgba(194,60,44,.8);
+}
+button[data-variant="pills"][data-selected="true"] *,
+button[data-variant="pills"][aria-checked="true"] *,
+button[data-variant="pills"][aria-pressed="true"] *{ color:#ffffff !important; }
+div[data-testid="stButtonGroup"]{ gap: 8px !important; }
+
+/* ---- 버튼 ---- */
+div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
+  background-color: var(--accent) !important;
+  color:#fff !important; border:none !important; border-radius:10px !important;
+  font-weight:700 !important; padding:0.65em 1.1em !important;
+  box-shadow: 0 6px 16px -8px rgba(194,60,44,.7);
+}
+div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
+div.stButton > button[kind="secondary"]{
+  background:#e9ede6 !important; color:var(--ink) !important; box-shadow:none !important;
+}
+
+/* ---- 결과 영역 ---- */
+div[data-testid="stExpander"]{
+  border:1px solid var(--line) !important; border-radius:12px !important;
+  background: var(--surface); overflow:hidden;
+}
+div[data-testid="stMetricValue"]{ font-family:'IBM Plex Mono', monospace; }
 </style>
 """
 st.markdown(PASERU_CSS, unsafe_allow_html=True)
+
+
+def stop_label(name, address):
+    """대상명 + 주소 표기. 이름 안에 이미 주소(또는 번지)가 들어 있으면 중복 표기하지 않는다."""
+    name = (name or "").strip()
+    address = (address or "").strip()
+    if not address or address == name:
+        return name
+    # "경상북도 성주군 월항면 인촌1리 606-1" -> 뒤쪽 핵심부("인촌1리 606-1")가 이름에 있으면 생략
+    tail = " ".join(address.split()[-2:])
+    if tail and tail in name:
+        return name
+    if address in name:
+        return name
+    return f"{name} ({address})"
+
+
+def kakao_url(name, lat, lng):
+    """카카오맵 길안내 링크 (공백·괄호가 있어도 깨지지 않도록 인코딩)."""
+    return ("https://map.kakao.com/link/to/"
+            f"{quote(str(name), safe='')},{lat},{lng}")
+
+
+def card_title(step, text):
+    st.markdown(
+        f'<div class="paseru-card-title"><span class="paseru-step">{step}</span>{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def sub_label(text):
+    st.markdown(f'<div class="paseru-sub">{text}</div>', unsafe_allow_html=True)
+
+
+# ---- PWA: 홈 화면에 앱처럼 추가할 수 있도록 매니페스트를 부모 문서에 주입(가능한 환경에서) ----
+components.html(
+    """
+<script>
+try {
+  const d = window.parent.document;
+  if (d && !d.getElementById('paseru-manifest')) {
+    const manifest = {
+      name: "파세루 오리진 - 순찰노선 설계기",
+      short_name: "파세루",
+      description: "AI 기반 소방 순찰노선 최적화 서비스",
+      start_url: ".", scope: ".", display: "standalone",
+      background_color: "#f1f4f0", theme_color: "#c23c2c",
+      icons: []
+    };
+    const link = d.createElement('link');
+    link.id = 'paseru-manifest';
+    link.rel = 'manifest';
+    link.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
+    d.head.appendChild(link);
+    const meta = d.createElement('meta');
+    meta.name = 'apple-mobile-web-app-capable'; meta.content = 'yes';
+    d.head.appendChild(meta);
+    const theme = d.createElement('meta');
+    theme.name = 'theme-color'; theme.content = '#c23c2c';
+    d.head.appendChild(theme);
+  }
+} catch (e) { /* 환경상 주입이 막히면 조용히 무시 */ }
+</script>
+""",
+    height=0,
+)
 
 st.markdown('<div class="paseru-eyebrow">성주소방서 · 119재난대응과 · 실동 버전</div>', unsafe_allow_html=True)
 st.title("🚒 파세루 오리진 (FireSafe Route Origin)")
@@ -233,16 +406,26 @@ if not has_keys():
         "NCP_CLIENT_ID / NCP_CLIENT_SECRET 값을 등록해주세요."
     )
 
+# ----------------------------------------------------------------------------
+# 0 · 순찰 제목 / 출발·복귀 기준점
+# ----------------------------------------------------------------------------
 with st.container(border=True):
-    st.markdown("##### 0 · 출발·복귀 기준점(소방서·센터)")
-    c1, c2 = st.columns(2)
+    card_title(0, "순찰 제목 · 출발·복귀 기준점")
+    patrol_title = st.text_input("순찰 제목", value="추석 특별경계근무 순찰노선 - 성주군 일원")
+    c1, c2, c3 = st.columns([1, 1.6, 1])
     with c1:
-        station_name = st.text_input("이름", value="성주소방서")
+        station_name = st.text_input("출발 부서(소방서·센터) 이름", value="성주소방서")
     with c2:
-        station_address = st.text_input("주소", value="경상북도 성주군 성주읍 주산로 193")
+        station_address = st.text_input("출발 부서 주소", value="경상북도 성주군 성주읍 주산로 193")
+    with c3:
+        route_prefix = st.text_input("노선 이름 접두어", value="성주",
+                                     help="엑셀의 '노선이름' 열에 쓰입니다. 예) 성주 → 성주노선1")
 
 st.write("")
 
+# ----------------------------------------------------------------------------
+# 1 · 순찰 방법(노선 용도)
+# ----------------------------------------------------------------------------
 PURPOSE_OPTIONS = [
     "① 특별경계근무용", "② 계절순찰", "③ 예방검사", "④ 지리조사(센터용)", "⑤ 기타",
 ]
@@ -255,9 +438,11 @@ PURPOSE_HINT = {
 }
 
 with st.container(border=True):
-    st.markdown("##### 1 · 순찰 방법(노선 용도)")
+    card_title(1, "순찰 방법(노선 용도)")
     purpose_label = st.pills("노선 용도", PURPOSE_OPTIONS, default=PURPOSE_OPTIONS[0],
-                              label_visibility="collapsed")
+                             label_visibility="collapsed")
+    if not purpose_label:
+        purpose_label = PURPOSE_OPTIONS[0]
     st.caption(PURPOSE_HINT.get(purpose_label, ""))
     purpose = {
         "① 특별경계근무용": "guard", "② 계절순찰": "season", "③ 예방검사": "inspect",
@@ -267,16 +452,20 @@ with st.container(border=True):
     guard_repeat_label = None
     guard_rounds = None
     hydrant_teams = None
+    hydrant_target_min = 60
     other_teams = None
 
     if purpose == "guard":
-        gc1, gc2 = st.columns(2)
+        gc1, gc2 = st.columns([1.6, 1])
         with gc1:
+            sub_label("반복 방식")
             guard_repeat_label = st.pills("반복 방식", ["매일 같은 코스 반복", "매일 다른 코스 순환"],
-                                           default="매일 같은 코스 반복")
+                                          default="매일 같은 코스 반복", label_visibility="collapsed")
         with gc2:
             if guard_repeat_label == "매일 같은 코스 반복":
-                guard_rounds = st.pills("하루 반복 횟수", ["1회", "2회", "3회"], default="1회")
+                sub_label("하루 반복 횟수")
+                guard_rounds = st.pills("하루 반복 횟수", ["1회", "2회", "3회"], default="1회",
+                                        label_visibility="collapsed")
     elif purpose == "hydrant":
         hc1, hc2 = st.columns(2)
         with hc1:
@@ -288,35 +477,78 @@ with st.container(border=True):
 
 st.write("")
 
+# ----------------------------------------------------------------------------
+# 2 · 순찰 기간 · 차량
+# ----------------------------------------------------------------------------
+if "period_start" not in st.session_state:
+    st.session_state["period_start"] = date(2026, 9, 23)
+    st.session_state["period_start_time"] = dtime(18, 0)
+    st.session_state["period_end"] = date(2026, 9, 28)
+    st.session_state["period_end_time"] = dtime(9, 0)
+
 with st.container(border=True):
-    st.markdown("##### 2 · 노선 조건 설정")
+    card_title(2, "순찰 기간 · 순찰 차량")
+
+    if st.button("🎑 추석 특별경계근무 자동입력 (9.23 18:00 ~ 9.28 09:00, 5일)", type="secondary"):
+        st.session_state["period_start"] = date(2026, 9, 23)
+        st.session_state["period_start_time"] = dtime(18, 0)
+        st.session_state["period_end"] = date(2026, 9, 28)
+        st.session_state["period_end_time"] = dtime(9, 0)
+        st.rerun()
+
+    dc1, dc2, dc3, dc4 = st.columns(4)
+    with dc1:
+        period_start = st.date_input("시작일", key="period_start")
+    with dc2:
+        period_start_time = st.time_input("시작 시각", key="period_start_time")
+    with dc3:
+        period_end = st.date_input("종료일", key="period_end")
+    with dc4:
+        period_end_time = st.time_input("종료 시각", key="period_end_time")
+
+    start_dt = datetime.combine(period_start, period_start_time)
+    end_dt = datetime.combine(period_end, period_end_time)
+    if end_dt <= start_dt:
+        st.warning("⚠ 종료 일시가 시작 일시보다 빠릅니다. 기간을 확인해주세요.")
+        period_days = 1
+    else:
+        period_days = max(1, math.ceil((end_dt - start_dt).total_seconds() / 86400))
+        st.caption(f"총 {period_days}일간")
+
+    vehicle = st.selectbox("순찰 차량", ["소방차", "구급차", "행정차", "개인차"], index=0)
+
+st.write("")
+
+# ----------------------------------------------------------------------------
+# 3 · 노선 조건 설정
+# ----------------------------------------------------------------------------
+with st.container(border=True):
+    card_title(3, "노선 조건 설정")
 
     time_based = purpose in ("hydrant", "other")
 
     if time_based:
         mode = "target_time"
-        if purpose == "other":
-            target_min = 30
-        else:
-            target_min = hydrant_target_min
-        allow_range = 10
-        target_min_low = target_min - allow_range
-        target_min_high = target_min + allow_range
+        target_min = 30 if purpose == "other" else hydrant_target_min
+        target_min_low = target_min - 10
+        target_min_high = target_min + 10
         seg_max_km = seg_max_min = None
         max_per_route = 25
         max_routes_cap = 0
         st.caption(f"목표 {target_min}분/노선 기준으로 자동 편성합니다 (노선 내 대상 수 제한 없음).")
     else:
-        st.markdown("**가. 기준 방식**")
+        sub_label("가. 기준 방식")
         mode_label = st.pills("기준 방식", ["구간별 제한", "노선 전체 목표시간"],
-                               default="구간별 제한", label_visibility="collapsed")
+                              default="구간별 제한", label_visibility="collapsed")
+        if not mode_label:
+            mode_label = "구간별 제한"
         mode = "segment" if mode_label == "구간별 제한" else "target_time"
 
         cc1, cc2 = st.columns(2)
         with cc1:
-            max_per_route = st.number_input("노선당 최대 대상 수", min_value=1, max_value=30, value=4)
+            max_per_route = st.number_input("노선 내 구간 수(방문지 수)", min_value=1, max_value=30, value=4)
         with cc2:
-            max_routes_cap = st.number_input("전체 노선 개수 상한(0=무제한)", min_value=0, value=0)
+            max_routes_cap = st.number_input("총 노선 수 상한(0 = 전수 자동배분)", min_value=0, value=0)
 
         if mode == "segment":
             sc1, sc2 = st.columns(2)
@@ -326,56 +558,105 @@ with st.container(border=True):
                 seg_max_min = st.number_input("구간당 최대 시간(분)", min_value=1, value=10)
             target_min = target_min_low = target_min_high = None
         else:
-            target_min = st.number_input("목표 왕복시간(분)", min_value=10, value=60)
+            sub_label("나. 순찰 소요시간(왕복 목표시간)")
+            quick_min = st.pills("목표 시간", ["30분", "1시간", "2시간", "직접입력"],
+                                 default="1시간", label_visibility="collapsed")
+            if quick_min == "30분":
+                target_min = 30
+            elif quick_min == "2시간":
+                target_min = 120
+            elif quick_min == "직접입력":
+                target_min = st.number_input("목표 왕복시간(분)", min_value=10, value=90)
+            else:
+                target_min = 60
             allow_range = st.slider("허용 범위(분, ±)", 0, 60, 15)
             target_min_low = target_min - allow_range
             target_min_high = target_min + allow_range
             seg_max_km = seg_max_min = None
 
-    st.markdown("**나. 장거리 분리 기준**")
+    sub_label("다. 노선 생성 기준")
+    basis_label = st.pills("노선 생성 기준", ["거리 기준", "소요시간 기준"],
+                           default="거리 기준", label_visibility="collapsed")
+    if not basis_label:
+        basis_label = "거리 기준"
+    basis = "time" if basis_label == "소요시간 기준" else "distance"
+    st.caption("거리 기준: 이동 거리(km)가 가장 짧은 순서로 연결 / 소요시간 기준: 이동 시간(분)이 가장 짧은 순서로 연결")
+
+    sub_label("라. 장거리 분리 기준")
     long_threshold = st.number_input("소방서 실제 도로거리(km) 초과 시 별도 표시", min_value=1.0, value=15.0)
 
 st.write("")
 
+# ----------------------------------------------------------------------------
+# 4 · 대상 목록 업로드
+# ----------------------------------------------------------------------------
 with st.container(border=True):
-    st.markdown("##### 3 · 대상 목록 업로드")
-    uploaded = st.file_uploader("CSV 또는 Excel 파일 (주소 컬럼 포함)", type=["csv", "xlsx", "xls"])
-    use_sample = st.checkbox("샘플 데이터로 테스트 (성주읍·월항면 마을회관 30개소)", value=uploaded is None)
+    card_title(4, "대상 목록 업로드")
+    st.caption("엑셀(xlsx/xls) · CSV · 아래아한글(hwpx) 표를 올리면 자동으로 인식합니다. "
+               "권장 양식: 연번 / 주소지(이름) / 비고 / 정제_주소 / 위도 / 경도")
+    uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
+                                label_visibility="collapsed")
+    use_sample = st.checkbox("🧪 심사용 예시 30건 불러오기 (성주읍·월항면 마을회관 추석 특별경계근무 실데이터)",
+                             value=uploaded is None)
 
 df = None
 if uploaded is not None:
-    if uploaded.name.endswith(".csv"):
+    name_lower = uploaded.name.lower()
+    if name_lower.endswith(".csv"):
         df = pd.read_csv(uploaded)
+    elif name_lower.endswith(".hwpx"):
+        df = parse_hwpx(uploaded.getvalue())
+        if df is None:
+            st.error("hwpx 파일에서 표나 목록을 찾지 못했습니다. 표 형식인지 확인해주세요.")
     else:
         df = pd.read_excel(uploaded)
 elif use_sample:
-    df = pd.read_csv("seongju_patrol_coordinates_updated_modified.csv")
+    df = pd.read_csv(SAMPLE_CSV)
     # 이 샘플 파일의 연번 0행은 출발점(성주소방서) 자신이므로 순찰 대상 목록에서 제외
     if "연번" in df.columns:
         df = df[df["연번"] != 0].reset_index(drop=True)
 
-if df is not None:
+# ----------------------------------------------------------------------------
+# 5 · 미리보기 · 노선 생성
+# ----------------------------------------------------------------------------
+if df is not None and len(df):
     st.write("")
     with st.container(border=True):
-        st.markdown("##### 4 · 업로드된 데이터 미리보기 · 노선 생성")
+        card_title(5, "데이터 확인 · 노선 생성")
         st.dataframe(df.head(10), use_container_width=True)
+        st.caption(f"총 {len(df)}건의 대상이 인식되었습니다.")
 
         cols = list(df.columns)
+        # 이름 컬럼 기본값: "연번" 같은 숫자 컬럼이 아니라 실제 명칭이 담긴 컬럼을 우선 선택
+        name_col_guess_idx = next(
+            (i for i, c in enumerate(cols)
+             if str(c) not in ("연번",) and ("주소지" in str(c) or "이름" in str(c) or "명" in str(c))),
+            None,
+        )
+        if name_col_guess_idx is None:
+            name_col_guess_idx = 1 if len(cols) > 1 else 0
+        # 주소 컬럼 기본값: "정제_주소"처럼 지오코딩에 바로 쓸 수 있는 컬럼을 최우선으로
+        addr_col_guess_idx = next(
+            (i for i, c in enumerate(cols) if "정제" in str(c)),
+            next((i for i, c in enumerate(cols)
+                  if "주소" in str(c) and str(c) != str(cols[name_col_guess_idx])),
+                 min(3, len(cols) - 1)),
+        )
+
         pc1, pc2 = st.columns(2)
         with pc1:
-            name_col = st.selectbox("이름(주소지) 컬럼", cols, index=0)
+            name_col = st.selectbox("이름(대상명) 컬럼", cols, index=name_col_guess_idx)
         with pc2:
-            addr_col = st.selectbox(
-                "지오코딩에 사용할 주소 컬럼", cols, index=min(3, len(cols) - 1)
-            )
-        lat_col_guess = next((c for c in cols if "위도" in c or c.lower() == "lat"), None)
-        lng_col_guess = next((c for c in cols if "경도" in c or c.lower() in ("lng", "lon")), None)
+            addr_col = st.selectbox("지오코딩에 사용할 주소 컬럼", cols, index=addr_col_guess_idx)
+
+        lat_col_guess = next((c for c in cols if "위도" in str(c) or str(c).lower() == "lat"), None)
+        lng_col_guess = next((c for c in cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
         use_existing_coords = st.checkbox(
             "파일에 이미 위·경도가 있으면 재지오코딩 없이 사용", value=bool(lat_col_guess and lng_col_guess)
         )
 
         run = st.button("🚀 노선 생성 (실제 지오코딩 · 실도로거리 계산)", type="primary",
-                         disabled=not has_keys(), use_container_width=True)
+                        disabled=not has_keys(), use_container_width=True)
 
     if run:
         # 1) 소방서 좌표
@@ -390,9 +671,13 @@ if df is not None:
         points = []
         progress = st.progress(0.0, text="주소 지오코딩 중...")
         n = len(df)
-        for i, row in df.iterrows():
+        for i, (_, row) in enumerate(df.iterrows()):
             if use_existing_coords and lat_col_guess and lng_col_guess:
                 lat, lng = row[lat_col_guess], row[lng_col_guess]
+                try:
+                    lat, lng = float(lat), float(lng)
+                except (TypeError, ValueError):
+                    lat, lng = geocode_address(str(row[addr_col]))
             else:
                 lat, lng = geocode_address(str(row[addr_col]))
             if lat is not None and not (isinstance(lat, float) and math.isnan(lat)):
@@ -414,23 +699,23 @@ if df is not None:
         def bump(total_hint=len(points)):
             call_counter["n"] += 1
             long_progress.progress(min(call_counter["n"] / max(total_hint, 1), 1.0),
-                                    text=f"실제 도로거리 API 호출 중... ({call_counter['n']}건)")
+                                   text=f"실제 도로거리 API 호출 중... ({call_counter['n']}건)")
 
         normal_points, far_points = separate_long_distance(points, station, long_threshold, on_call=bump)
         long_progress.empty()
 
-        # 4) 노선 편성 (매 단계 NCP Directions5 실도로거리로 최근접 지점 선택)
+        # 4) 노선 편성
         call_counter["n"] = 0
         build_progress = st.empty()
 
         def bump_build():
             call_counter["n"] += 1
-            build_progress.text(f"실도로거리 기준 노선 편성 중... (API 호출 {call_counter['n']}건)")
+            build_progress.text(f"실도로 기준 노선 편성 중... (API 호출 {call_counter['n']}건)")
 
         routes, unassigned = build_routes(
             normal_points, station, mode, max_per_route,
             seg_max_km, seg_max_min, target_min_high,
-            max_routes_cap or None, on_call=bump_build,
+            max_routes_cap or None, basis=basis, on_call=bump_build,
         )
         build_progress.empty()
 
@@ -439,6 +724,7 @@ if df is not None:
                 km, _ = real_leg(station, p)
                 far_points.append({**p, "도로거리_km": round(km, 1)})
 
+        # 용도별 부가 정보
         team_info = ""
         if purpose == "hydrant" and hydrant_teams:
             rounds_needed = math.ceil(len(routes) / hydrant_teams) if routes else 0
@@ -447,14 +733,15 @@ if df is not None:
             rounds_needed = math.ceil(len(routes) / other_teams) if routes else 0
             team_info = f" · 팀 {other_teams}개 기준 팀당 {rounds_needed}회"
         elif purpose == "guard" and guard_repeat_label == "매일 같은 코스 반복" and guard_rounds:
-            team_info = f" · 매일 같은 코스로 하루 {guard_rounds} 반복"
+            total_runs = int(guard_rounds.replace("회", "")) * period_days
+            team_info = f" · 매일 같은 코스로 하루 {guard_rounds} 반복({period_days}일간 총 {total_runs}회)"
         elif purpose == "guard":
-            team_info = " · 매일 다른 코스로 순환"
+            team_info = f" · 매일 다른 코스로 순환({period_days}일간 {len(routes)}개 노선 배정)"
 
         st.success(f"[{purpose_label}] 총 {len(routes)}개 노선, {sum(len(r) for r in routes)}개소 배정 완료 "
                    f"(장거리 별도 {len(far_points)}개소){team_info}")
 
-        # 5) 확정 노선의 구간별 실도로거리·경로좌표 (이미 계산된 값은 캐시로 재사용됨)
+        # 5) 확정 노선의 구간별 실도로거리·경로좌표
         route_results = []
         total_calls = sum(len(r) + 1 for r in routes)
         call_progress = st.progress(0.0, text="노선별 실도로 경로 확정 중...")
@@ -471,14 +758,14 @@ if df is not None:
                     km = haversine_km((cur["lat"], cur["lng"]), (p["lat"], p["lng"])) * ROAD_FACTOR
                     mins = km / AVG_SPEED_KMH * 60
                     path = [(cur["lat"], cur["lng"]), (p["lat"], p["lng"])]
-                legs.append({"from": cur["name"], "to": p["name"], "km": km, "min": mins,
-                             "lat": p["lat"], "lng": p["lng"]})
+                legs.append({"from": cur["name"], "to": p["name"], "to_address": p.get("address", ""),
+                             "km": km, "min": mins, "lat": p["lat"], "lng": p["lng"]})
                 acc_km += km
                 acc_min += mins
                 all_path += path
                 cur = p
                 done += 1
-                call_progress.progress(min(done / total_calls, 1.0), text="노선별 실도로 경로 확정 중...")
+                call_progress.progress(min(done / max(total_calls, 1), 1.0), text="노선별 실도로 경로 확정 중...")
             back_km, back_min, back_path = road_route(cur["lat"], cur["lng"], station["lat"], station["lng"])
             if back_km is None:
                 back_km = haversine_km((cur["lat"], cur["lng"]), (station["lat"], station["lng"])) * ROAD_FACTOR
@@ -488,7 +775,7 @@ if df is not None:
             acc_min += back_min
             all_path += back_path
             done += 1
-            call_progress.progress(min(done / total_calls, 1.0), text="노선별 실도로 경로 확정 중...")
+            call_progress.progress(min(done / max(total_calls, 1), 1.0), text="노선별 실도로 경로 확정 중...")
 
             route_results.append({
                 "route_no": ri + 1, "stops": route, "legs": legs,
@@ -500,6 +787,11 @@ if df is not None:
         st.session_state["station"] = station
         st.session_state["route_results"] = route_results
         st.session_state["far_points"] = far_points
+        st.session_state["meta"] = {
+            "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
+            "period": f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)",
+            "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
+        }
 
 # ----------------------------------------------------------------------------
 # 결과 표시
@@ -508,69 +800,185 @@ if "route_results" in st.session_state:
     station = st.session_state["station"]
     route_results = st.session_state["route_results"]
     far_points = st.session_state["far_points"]
+    meta = st.session_state.get("meta", {})
 
-    st.header("📍 노선별 결과")
+    st.write("")
+    st.header("📍 노선 생성 결과")
+    if meta:
+        st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')} · "
+                   f"순찰기간 {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
+                   + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
 
-    # ---- 엑셀(xlsx) 다운로드: 관리자가 받아서 담당 조·조원 등을 직접 채워 넣을 수 있도록 ----
-    xlsx_rows = []
-    for rr in route_results:
-        for i, leg in enumerate(rr["legs"], start=1):
-            xlsx_rows.append({
-                "노선": f"노선 {rr['route_no']}", "순번": i, "목적지": leg["to"],
-                "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
-                "담당 조 이름": "", "조원": "",
-            })
-        xlsx_rows.append({
-            "노선": f"노선 {rr['route_no']}", "순번": "", "목적지": f"복귀 ({station['name']})",
-            "구간거리(km)": round(rr["back_km"], 1), "구간시간(분)": round(rr["back_min"]),
-            "담당 조 이름": "", "조원": "",
-        })
-    for p in far_points:
-        xlsx_rows.append({
-            "노선": "장거리 별도", "순번": "", "목적지": p["name"],
-            "구간거리(km)": p.get("도로거리_km", ""), "구간시간(분)": "",
-            "담당 조 이름": "", "조원": "",
-        })
-    xlsx_buf = io.BytesIO()
-    pd.DataFrame(xlsx_rows).to_excel(xlsx_buf, index=False, engine="openpyxl")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("생성 노선 수", f"{len(route_results)}")
+    m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
+    m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
+    m4.metric("원거리 분리 대상", f"{len(far_points)}")
+
+    # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
+    with st.container(border=True):
+        card_title("조", "노선별 담당 조 · 조원 입력")
+        st.caption("여기에 입력한 내용은 아래 엑셀 다운로드 파일에 그대로 들어갑니다.")
+        for rr in route_results:
+            tc1, tc2, tc3 = st.columns([0.8, 1.2, 2])
+            with tc1:
+                st.markdown(f"**노선 {rr['route_no']}**")
+            with tc2:
+                st.text_input("담당 조 이름", key=f"team_name_{rr['route_no']}",
+                              placeholder="예) 가천1팀1조", label_visibility="collapsed")
+            with tc3:
+                st.text_input("조원", key=f"team_members_{rr['route_no']}",
+                              placeholder="조원 예) 홍길동, 이순신", label_visibility="collapsed")
+
+    # ---- 엑셀(xlsx) 다운로드: 노선 1개 = 1행, 경유지가 옆으로 펼쳐지는 가로형 ----
+    def build_wide_excel(station, route_results, far_points, meta):
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "순찰노선"
+
+        prefix = (meta.get("route_prefix") or "").strip() or station["name"]
+        base_cols = ["연번", "부서명", "노선이름", "구분", "담당 조", "조원", "출발지"]
+        max_stops = max((len(rr["legs"]) for rr in route_results), default=0)
+
+        thin = Side(style="thin", color="9AA59D")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        head_fill = PatternFill("solid", fgColor="F4DDD8")
+        head_font = Font(bold=True, size=10)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # 제목 줄
+        total_cols = len(base_cols) + max_stops * 3 + 3
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(total_cols, 1))
+        title_cell = ws.cell(row=1, column=1, value=f"{meta.get('title', '순찰노선')}   "
+                                                    f"[{meta.get('purpose', '')} · {meta.get('vehicle', '')} · "
+                                                    f"{meta.get('period', '')}]")
+        title_cell.font = Font(bold=True, size=13)
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        HEAD1, HEAD2, DATA0 = 2, 3, 4
+
+        for i, name in enumerate(base_cols, start=1):
+            ws.merge_cells(start_row=HEAD1, start_column=i, end_row=HEAD2, end_column=i)
+            ws.cell(row=HEAD1, column=i, value=name)
+
+        col = len(base_cols) + 1
+        for i in range(1, max_stops + 1):
+            ws.merge_cells(start_row=HEAD1, start_column=col, end_row=HEAD1, end_column=col + 2)
+            ws.cell(row=HEAD1, column=col, value=f"경유{i}")
+            ws.cell(row=HEAD2, column=col, value="대상명(주소)")
+            ws.cell(row=HEAD2, column=col + 1, value="거리(km)")
+            ws.cell(row=HEAD2, column=col + 2, value="누적(km)")
+            col += 3
+
+        for label in ("귀소", "노선거리(km)", "순찰 총 소요시간(분)"):
+            ws.merge_cells(start_row=HEAD1, start_column=col, end_row=HEAD2, end_column=col)
+            ws.cell(row=HEAD1, column=col, value=label)
+            col += 1
+        last_col = col - 1
+
+        for r_ in (HEAD1, HEAD2):
+            for c_ in range(1, last_col + 1):
+                cell = ws.cell(row=r_, column=c_)
+                cell.fill = head_fill
+                cell.font = head_font
+                cell.alignment = center
+                cell.border = border
+
+        r = DATA0
+        for rr in route_results:
+            no = rr["route_no"]
+            c = 1
+            ws.cell(row=r, column=c, value=no); c += 1
+            ws.cell(row=r, column=c, value=station["name"]); c += 1
+            ws.cell(row=r, column=c, value=f"{prefix}노선{no}"); c += 1
+            ws.cell(row=r, column=c, value="근거리"); c += 1
+            ws.cell(row=r, column=c, value=st.session_state.get(f"team_name_{no}", "")); c += 1
+            ws.cell(row=r, column=c, value=st.session_state.get(f"team_members_{no}", "")); c += 1
+            ws.cell(row=r, column=c, value=station["name"]); c += 1
+            acc_km = 0.0
+            for leg in rr["legs"]:
+                acc_km += leg["km"]
+                ws.cell(row=r, column=c, value=stop_label(leg["to"], leg.get("to_address"))); c += 1
+                ws.cell(row=r, column=c, value=round(leg["km"], 1)); c += 1
+                ws.cell(row=r, column=c, value=round(acc_km, 1)); c += 1
+            c += (max_stops - len(rr["legs"])) * 3  # 경유지 수가 적은 노선은 빈칸 패딩
+            ws.cell(row=r, column=c, value=station["name"]); c += 1
+            ws.cell(row=r, column=c, value=round(rr["total_km"], 1)); c += 1
+            ws.cell(row=r, column=c, value=round(rr["total_min"])); c += 1
+            r += 1
+
+        for idx, p in enumerate(far_points, start=1):
+            c = 1
+            ws.cell(row=r, column=c, value=f"장거리{idx}"); c += 1
+            ws.cell(row=r, column=c, value=station["name"]); c += 1
+            ws.cell(row=r, column=c, value="-"); c += 1
+            ws.cell(row=r, column=c, value="원거리"); c += 1
+            c += 2  # 담당 조 · 조원 빈칸
+            ws.cell(row=r, column=c, value=station["name"]); c += 1
+            ws.cell(row=r, column=c, value=stop_label(p["name"], p.get("address"))); c += 1
+            ws.cell(row=r, column=c, value=p.get("도로거리_km", "")); c += 1
+            r += 1
+
+        for row_cells in ws.iter_rows(min_row=DATA0, max_row=r - 1, min_col=1, max_col=last_col):
+            for cell in row_cells:
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+        for i in range(1, last_col + 1):
+            width = 24 if (i > len(base_cols) and (i - len(base_cols) - 1) % 3 == 0) else 13
+            ws.column_dimensions[get_column_letter(i)].width = width
+        ws.freeze_panes = ws.cell(row=DATA0, column=len(base_cols) + 1)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
     st.download_button(
         "📥 전체 노선 엑셀(xlsx)로 다운로드",
-        data=xlsx_buf.getvalue(),
-        file_name=f"{station['name']}_순찰노선.xlsx",
+        data=build_wide_excel(station, route_results, far_points, meta),
+        file_name=f"{safe_title}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
     for rr in route_results:
-        with st.expander(f"노선 {rr['route_no']} — {len(rr['stops'])}개소 · "
-                          f"총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분", expanded=True):
+        team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
+        head = (f"노선 {rr['route_no']}" + (f" · {team_name}" if team_name else "") +
+                f" — {len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분")
+        with st.expander(head, expanded=True):
             col1, col2 = st.columns([1, 1])
 
             with col1:
                 rows = []
                 for i, leg in enumerate(rr["legs"], start=1):
                     rows.append({
-                        "순번": i, "지점": leg["to"],
+                        "순번": i, "지점": stop_label(leg["to"], leg.get("to_address")),
                         "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
                     })
                 rows.append({"순번": "", "지점": f"복귀 ({station['name']})",
-                              "구간거리(km)": round(rr["back_km"], 1),
-                              "구간시간(분)": round(rr["back_min"])})
+                             "구간거리(km)": round(rr["back_km"], 1),
+                             "구간시간(분)": round(rr["back_min"])})
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
                 st.markdown("**📱 내비게이션 바로가기**")
-                for leg in rr["legs"]:
-                    kakao_link = f"https://map.kakao.com/link/to/{leg['to']},{leg['lat']},{leg['lng']}"
-                    st.markdown(f"- [{leg['to']} 길안내]({kakao_link})")
+                for i, leg in enumerate(rr["legs"], start=1):
+                    st.markdown(
+                        f"- [{i}. {leg['to']} 길안내]({kakao_url(leg['to'], leg['lat'], leg['lng'])})"
+                    )
 
             with col2:
                 m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
                 folium.Marker([station["lat"], station["lng"]], tooltip=station["name"],
-                               icon=folium.Icon(color="red", icon="home")).add_to(m)
+                              icon=folium.Icon(color="red", icon="home")).add_to(m)
                 for i, leg in enumerate(rr["legs"], start=1):
                     folium.Marker([leg["lat"], leg["lng"]], tooltip=f"{i}. {leg['to']}",
                                   icon=folium.Icon(color="blue")).add_to(m)
                 if rr["path"]:
-                    folium.PolyLine(rr["path"], color="#2563eb", weight=4, opacity=0.8).add_to(m)
+                    folium.PolyLine(rr["path"], color="#c23c2c", weight=4, opacity=0.85).add_to(m)
                 st_folium(m, height=350, use_container_width=True, key=f"map_{rr['route_no']}")
 
     if far_points:
@@ -578,12 +986,14 @@ if "route_results" in st.session_state:
         st.dataframe(pd.DataFrame(far_points)[["name", "address", "도로거리_km"]],
                      use_container_width=True, hide_index=True)
         for p in far_points:
-            kakao_link = f"https://map.kakao.com/link/to/{p['name']},{p['lat']},{p['lng']}"
-            st.markdown(f"- [{p['name']} 길안내]({kakao_link}) (실도로거리 {p['도로거리_km']}km)")
+            st.markdown(
+                f"- [{p['name']} 길안내]({kakao_url(p['name'], p['lat'], p['lng'])})"
+                f" · 실도로거리 {p['도로거리_km']}km"
+            )
 
     st.divider()
     st.caption(
         "⚠️ 이 페이지의 API 키는 서버(Secrets)에만 저장되며 브라우저로 노출되지 않습니다. "
-        "실제 도로거리·소요시간은 NCP Directions5 실시간 계산 결과입니다."
-        
+        "실제 도로거리·소요시간은 NCP Geocoding·Directions5 실시간 계산 결과입니다. "
+        "📲 휴대폰에서는 브라우저 메뉴의 '홈 화면에 추가'를 누르면 앱처럼 사용할 수 있습니다."
     )
