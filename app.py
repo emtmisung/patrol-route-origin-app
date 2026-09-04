@@ -4,7 +4,6 @@ import io
 import math
 import re
 import zipfile
-from datetime import datetime, date, time as dtime
 from datetime import datetime, date, time as dtime, timedelta
 from urllib.parse import quote
 
@@ -29,7 +28,6 @@ NCP_KEY = st.secrets.get("NCP_CLIENT_SECRET", "")
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
 
-SAMPLE_CSV = "seongju_patrol_coordinates_updated_modified.csv"
 SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
 
 
@@ -608,19 +606,14 @@ def make_qr_png(data):
 
 
 def build_qr_zip(station, route_results):
-    """모든 노선의 카카오맵 QR PNG와 경로 목록을 ZIP으로 묶는다."""
     """모든 노선의 카카오맵 QR PNG와 경로 목록 엑셀을 ZIP으로 묶는다."""
     buffer = io.BytesIO()
-    route_lines = []
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for rr in route_results:
             links = kakao_route_links(station, rr["legs"])
             for li, (url, origin, destinations) in enumerate(links, start=1):
                 suffix = "" if len(links) == 1 else f"_구간{li}"
                 zf.writestr(f"노선_{rr['route_no']}{suffix}_QR.png", make_qr_png(url))
-                seq = " → ".join([origin["name"]] + [p["name"] for p in destinations])
-                route_lines.append(f"노선 {rr['route_no']}{suffix}: {seq}\n{url}\n")
-        zf.writestr("노선별_경로와_링크.txt", "\n".join(route_lines).encode("utf-8-sig"))
         zf.writestr("노선별_경로와_링크.xlsx", build_route_links_excel(station, route_results))
     return buffer.getvalue()
 
@@ -953,8 +946,6 @@ if "period_start" not in st.session_state:
     st.session_state["period_end_time"] = dtime(9, 0)
 
 with st.container(border=True):
-    card_title(2, "순찰 기간 · 순찰 차량")
-with st.container(border=True):
     if purpose == "inspect":
         card_title(2, "예방검사 일정")
         st.caption("대상 파일에는 대상명과 주소만 준비하면 됩니다. 공통 검사 조건은 여기에서 한 번만 설정합니다.")
@@ -1056,34 +1047,6 @@ with st.container(border=True):
             st.caption(f"총 {period_days}일간")
 
         vehicle = st.selectbox("순찰 차량", ["소방차", "구급차", "행정차", "개인차"], index=0)
-
-    if st.button("🎑 추석 특별경계근무 자동입력 (9.23 18:00 ~ 9.28 09:00, 5일)", type="secondary"):
-        st.session_state["period_start"] = date(2026, 9, 23)
-        st.session_state["period_start_time"] = dtime(18, 0)
-        st.session_state["period_end"] = date(2026, 9, 28)
-        st.session_state["period_end_time"] = dtime(9, 0)
-        st.rerun()
-
-    dc1, dc2, dc3, dc4 = st.columns(4)
-    with dc1:
-        period_start = st.date_input("시작일", key="period_start")
-    with dc2:
-        period_start_time = st.time_input("시작 시각", key="period_start_time")
-    with dc3:
-        period_end = st.date_input("종료일", key="period_end")
-    with dc4:
-        period_end_time = st.time_input("종료 시각", key="period_end_time")
-
-    start_dt = datetime.combine(period_start, period_start_time)
-    end_dt = datetime.combine(period_end, period_end_time)
-    if end_dt <= start_dt:
-        st.warning("⚠ 종료 일시가 시작 일시보다 빠릅니다. 기간을 확인해주세요.")
-        period_days = 1
-    else:
-        period_days = max(1, math.ceil((end_dt - start_dt).total_seconds() / 86400))
-        st.caption(f"총 {period_days}일간")
-
-    vehicle = st.selectbox("순찰 차량", ["소방차", "구급차", "행정차", "개인차"], index=0)
 
 st.write("")
 
@@ -1187,11 +1150,6 @@ st.write("")
 # ----------------------------------------------------------------------------
 with st.container(border=True):
     card_title(4, "대상 목록 업로드")
-    st.caption("엑셀(xlsx/xls) · CSV · 아래아한글(hwpx) 표를 올리면 자동으로 인식합니다. "
-               "권장 양식: 연번 / 주소지(이름) / 비고 / 정제_주소 / 위도 / 경도")
-    uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
-with st.container(border=True):
-    card_title(4, "대상 목록 업로드")
     template_col, template_note_col = st.columns([1, 2])
     with template_col:
         st.download_button(
@@ -1207,8 +1165,6 @@ with st.container(border=True):
     st.caption("작성한 엑셀 또는 기존 xlsx/xls·CSV·아래아한글(hwpx) 표를 올리면 자동으로 인식합니다.")
     uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
                                 label_visibility="collapsed")
-    use_sample = st.checkbox("🧪 심사용 예시 30건 불러오기 (성주읍·월항면 마을회관 추석 특별경계근무 실데이터)",
-                             value=uploaded is None)
     use_sample = st.checkbox("🧪 심사용 예시 20건 불러오기 (성주군 마을회관 특별경계근무 실데이터)",
                              value=uploaded is None)
 
@@ -1223,8 +1179,6 @@ if uploaded is not None:
             st.error("hwpx 파일에서 표나 목록을 찾지 못했습니다. 표 형식인지 확인해주세요.")
     else:
         df = pd.read_excel(uploaded)
-elif use_sample:
-    df = pd.read_csv(SAMPLE_CSV)
 elif use_sample:
     df = pd.read_excel(SAMPLE_XLSX)
 
@@ -1314,8 +1268,6 @@ if df is not None and len(df):
             st.caption("파일에 위·경도가 없어 주소로 좌표를 찾습니다(NCP Geocoding).")
 
 
-        n_targets = len(df)
-        st.caption(f"1단계에서 좌표를 먼저 확정하고, 2단계에서 그 좌표로 노선을 만듭니다. "
         n_targets = len(df)
         if purpose == "inspect":
             available_team_days = len(inspect_dates) * int(inspect_teams)
@@ -1562,9 +1514,6 @@ if df is not None and len(df):
         elif purpose == "other" and other_teams:
             rounds_needed = math.ceil(len(routes) / other_teams) if routes else 0
             team_info = f" · 팀 {other_teams}개 기준 팀당 {rounds_needed}회"
-        elif purpose == "other" and other_teams:
-            rounds_needed = math.ceil(len(routes) / other_teams) if routes else 0
-            team_info = f" · 팀 {other_teams}개 기준 팀당 {rounds_needed}회"
         elif purpose == "inspect":
             available_team_days = len(inspect_dates) * int(inspect_teams)
             assigned_targets = sum(len(route) for route in routes)
@@ -1628,10 +1577,6 @@ if df is not None and len(df):
         st.session_state["far_points"] = far_points
         st.session_state["meta"] = {
             "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
-            "period": f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)",
-            "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
-        st.session_state["meta"] = {
-            "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
             "period": (f"{period_start:%Y-%m-%d} ~ {period_end:%Y-%m-%d} "
                        f"(검사 가능일 {len(inspect_dates)}일)" if purpose == "inspect" else
                        f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)"),
@@ -1656,8 +1601,6 @@ if "route_results" in st.session_state:
     st.write("")
     st.header("📍 노선 생성 결과")
     if meta:
-        st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')} · "
-                   f"순찰기간 {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
         st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')} · "
                    f"{meta.get('period_label', '순찰기간')} {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
                    + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
@@ -1798,7 +1741,6 @@ if "route_results" in st.session_state:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-    qr_all_col, print_all_col = st.columns(2)
     links_col, qr_all_col, print_all_col = st.columns(3)
     with links_col:
         st.download_button(
