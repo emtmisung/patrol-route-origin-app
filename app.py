@@ -1,5 +1,6 @@
 import base64
 import calendar
+import hmac
 import html
 import io
 import math
@@ -25,6 +26,7 @@ GEOCODE_URL = "https://maps.apigw.ntruss.com/map-geocode/v2/geocode"
 DIRECTIONS_URL = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
 NCP_KEY_ID = st.secrets.get("NCP_CLIENT_ID", "")
 NCP_KEY = st.secrets.get("NCP_CLIENT_SECRET", "")
+APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
@@ -974,6 +976,25 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# 공개 주소를 통한 무단 API 사용을 막기 위한 앱 입구 인증
+if not st.session_state.get("paseru_authenticated", False):
+    with st.container(border=True):
+        st.markdown("### 🔐 파세루 오리진 사용자 인증")
+        st.caption("이 앱은 승인된 업무 담당자만 이용할 수 있습니다.")
+        with st.form("paseru_login_form", clear_on_submit=False):
+            entered_password = st.text_input("비밀번호", type="password", placeholder="비밀번호를 입력하세요")
+            login_submitted = st.form_submit_button("앱 시작하기", type="primary", use_container_width=True)
+
+        if login_submitted:
+            if not APP_PASSWORD:
+                st.error("관리자가 Streamlit Secrets에 APP_PASSWORD를 먼저 등록해야 합니다.")
+            elif hmac.compare_digest(entered_password, APP_PASSWORD):
+                st.session_state["paseru_authenticated"] = True
+                st.rerun()
+            else:
+                st.error("비밀번호가 올바르지 않습니다.")
+    st.stop()
+
 if not has_keys():
     st.error(
         "NCP(네이버클라우드플랫폼) Client ID/Secret이 설정되지 않았습니다. "
@@ -1468,6 +1489,22 @@ st.write("")
 # ----------------------------------------------------------------------------
 with st.container(border=True):
     card_title(4, "대상 목록 업로드")
+    st.markdown(
+        """
+        <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #d7a54a;
+                    border-left:5px solid #b7791f;border-radius:10px;background:#fff7e8;
+                    color:#5f3d0c;line-height:1.6;">
+          <div style="font-size:1.08rem;font-weight:750;margin-bottom:0.25rem;color:#744b0f;">
+            ⚠️ 개인정보가 포함된 파일은 업로드하지 마세요
+          </div>
+          <div style="font-size:0.96rem;font-weight:600;color:#5f3d0c;">
+            이 앱은 공개 앱입니다. 대상명과 주소만 입력하고, 개인 성명·담당자 실명·전화번호 등
+            개인정보와 민감정보는 파일에 포함하지 마세요.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     template_col, template_note_col = st.columns([1, 2])
     with template_col:
         st.download_button(
