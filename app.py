@@ -427,7 +427,7 @@ PASERU_CSS = """
 
 :root{
   --accent:#a33a3f; --accent-button:#b8464b; --accent-hover:#8f3035; --accent-soft:#f7e9ea;
-  --navy:#17263a; --ink:#344054; --muted:#667085;
+  --navy:#17263a; --ink:#263442; --muted:#344054;
   --line:#cbd3dd; --divider:#d8dee7; --surface:#ffffff; --bg:#f7f8fa;
   --focus:#d8898d;
   color-scheme: light;   /* 휴대폰 다크모드에서도 밝은 화면으로 고정 */
@@ -535,6 +535,15 @@ div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
   box-shadow:0 5px 14px -8px rgba(143,48,53,.48);
 }
 div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
+/* 전역 글자색 규칙보다 우선해 주요 빨간 버튼의 글자를 항상 흰색으로 표시 */
+div.stButton > button:not([kind="secondary"]),
+div.stButton > button:not([kind="secondary"]) *,
+.stDownloadButton > button, .stDownloadButton > button *,
+div.stFormSubmitter > button, div.stFormSubmitter > button *{
+  color:#ffffff !important;
+  -webkit-text-fill-color:#ffffff !important;
+  opacity:1 !important;
+}
 div.stButton > button[kind="secondary"]{
   background:#ffffff !important; color:var(--ink) !important;
   border:1px solid #aab4c1 !important; box-shadow:none !important;
@@ -562,6 +571,19 @@ div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] *{
 }
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{
   color:var(--muted) !important;
+  -webkit-text-fill-color:var(--muted) !important;
+  opacity:1 !important;
+  font-weight:500 !important;
+}
+/* 안내문·업로더 보조문이 연한 회색으로 흐려지지 않도록 대비 확보 */
+.stApp small, .stApp small *,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] small *,
+[data-testid="stFileUploaderDropzoneInstructions"],
+[data-testid="stFileUploaderDropzoneInstructions"] *{
+  color:var(--muted) !important;
+  -webkit-text-fill-color:var(--muted) !important;
+  opacity:1 !important;
 }
 /* 표(데이터프레임·편집표) 글씨와 테두리를 진하게 */
 [data-testid="stDataFrame"] *, [data-testid="stDataEditor"] *{
