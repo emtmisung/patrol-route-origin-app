@@ -1642,8 +1642,10 @@ if df is not None and len(df):
     st.write("")
     with st.container(border=True):
         card_title(5, "좌표 검색 · 노선 생성")
-        with st.expander(f"🔎 업로드 데이터 확인 · 총 {len(df)}건", expanded=False):
-            st.dataframe(df, use_container_width=True, hide_index=True)
+        data_check_col, _ = st.columns([1, 1])
+        with data_check_col:
+            with st.expander(f"🔎 업로드 데이터 확인 · 총 {len(df)}건", expanded=False):
+                st.dataframe(df, use_container_width=True, hide_index=True)
         if excluded_station_rows:
             st.info(f"ℹ️ 목록에 있던 출발지({station_name}) {excluded_station_rows}건은 "
                     "순찰 대상이 아니라 출발·복귀 지점이므로 자동으로 제외했습니다.")
@@ -1758,17 +1760,19 @@ if df is not None and len(df):
         coords_complete = (saved_coords is not None and len(saved_coords) == n_targets
                            and saved_coords["위도"].notna().all()
                            and saved_coords["경도"].notna().all())
-        if coords_complete:
-            st.markdown(
-                '<div class="paseru-complete-action">✅ 좌표 검색 완료</div>',
-                unsafe_allow_html=True,
-            )
-            with st.expander("과정 보기 · 좌표를 다시 검색하려면 열기", expanded=False):
-                st.caption(f"{n_targets}개 대상의 좌표가 모두 확인되었습니다.")
-                find_coords = st.button("좌표 다시 검색", type="secondary", use_container_width=True)
-        else:
-            find_coords = st.button("① 좌표 검색 시작", type="primary",
-                                    disabled=(not has_keys() or n_targets == 0), use_container_width=True)
+        coord_action_col, _ = st.columns([1, 1])
+        with coord_action_col:
+            if coords_complete:
+                st.markdown(
+                    '<div class="paseru-complete-action">✅ 좌표 검색 완료</div>',
+                    unsafe_allow_html=True,
+                )
+                with st.expander("과정 보기 · 좌표 다시 검색", expanded=False):
+                    st.caption(f"{n_targets}개 대상의 좌표가 모두 확인되었습니다.")
+                    find_coords = st.button("좌표 다시 검색", type="secondary", use_container_width=True)
+            else:
+                find_coords = st.button("① 좌표 검색 시작", type="primary",
+                                        disabled=(not has_keys() or n_targets == 0), use_container_width=True)
 
     # ---- 1단계: 좌표 확정 ---------------------------------------------------
     if find_coords:
@@ -1824,7 +1828,10 @@ if df is not None and len(df):
 
     if coords_df is not None:
         st.write("")
-        with st.expander("과정 보기 · 좌표 결과 확인 및 수정", expanded=False):
+        coord_detail_col, _ = st.columns([1, 1])
+        with coord_detail_col:
+            coord_detail_box = st.expander("과정 보기 · 좌표 결과 확인 및 수정", expanded=False)
+        with coord_detail_box:
             ok_n = int(coords_df["위도"].notna().sum())
             fail_n = int(coords_df["위도"].isna().sum())
             k1, k2, k3 = st.columns(3)
@@ -1874,20 +1881,22 @@ if df is not None and len(df):
                 st.warning(f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다.")
 
             route_complete = bool(st.session_state.get("route_results"))
-            if route_complete:
-                st.markdown(
-                    '<div class="paseru-complete-action">✅ 노선 생성 완료 · 아래에서 최종 결과 확인</div>',
-                    unsafe_allow_html=True,
-                )
-                with st.expander("과정 보기 · 노선을 다시 계산하려면 열기", expanded=False):
-                    st.write(f"좌표 {n_ready}개 · 예상 API 호출 약 {est_calls:,}회 · 최대 {max_calls:,}회")
-                    run = st.button("노선 다시 생성", type="secondary", use_container_width=True)
-            else:
-                with st.expander("과정 보기 · 예상 계산량", expanded=False):
-                    st.write(f"좌표 {n_ready}개 · 예상 API 호출 약 {est_calls:,}회 · 최대 {max_calls:,}회")
-                    st.caption(f"예상 계산시간 약 {est_sec // 60}분 {est_sec % 60}초")
-                run = st.button("② 노선 생성 시작", type="primary",
-                                disabled=(not has_keys() or n_ready == 0), use_container_width=True)
+            route_action_col, _ = st.columns([1, 1])
+            with route_action_col:
+                if route_complete:
+                    st.markdown(
+                        '<div class="paseru-complete-action">✅ 노선 생성 완료 · 아래에서 결과 확인</div>',
+                        unsafe_allow_html=True,
+                    )
+                    with st.expander("과정 보기 · 노선 다시 계산", expanded=False):
+                        st.write(f"좌표 {n_ready}개 · 예상 API 호출 약 {est_calls:,}회 · 최대 {max_calls:,}회")
+                        run = st.button("노선 다시 생성", type="secondary", use_container_width=True)
+                else:
+                    with st.expander("과정 보기 · 예상 계산량", expanded=False):
+                        st.write(f"좌표 {n_ready}개 · 예상 API 호출 약 {est_calls:,}회 · 최대 {max_calls:,}회")
+                        st.caption(f"예상 계산시간 약 {est_sec // 60}분 {est_sec % 60}초")
+                    run = st.button("② 노선 생성 시작", type="primary",
+                                    disabled=(not has_keys() or n_ready == 0), use_container_width=True)
     else:
         run = False
         st.info("먼저 위의 **① 좌표 찾기**를 눌러 좌표를 확정해 주세요.")
