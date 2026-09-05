@@ -1076,14 +1076,33 @@ def next_tab_button(label, target_index):
     """현재 입력을 유지한 채 다음 Streamlit 탭으로 이동한다."""
     components.html(
         f"""
+        <style>
+          .paseru-next {{
+            width:33.333%; min-width:240px; padding:11px 12px 11px 22px;
+            border:2px solid #207447; border-radius:999px;
+            background:linear-gradient(135deg,#238553,#17663e); color:#fff;
+            font-family:Arial,'Noto Sans KR',sans-serif; font-size:15px; font-weight:800;
+            cursor:pointer; box-shadow:0 8px 20px -9px rgba(23,102,62,.8);
+            display:flex; align-items:center; justify-content:space-between; gap:12px;
+            transition:transform .16s ease,box-shadow .16s ease,filter .16s ease;
+          }}
+          .paseru-next:hover {{
+            transform:translateY(-2px); filter:brightness(1.06);
+            box-shadow:0 12px 24px -10px rgba(23,102,62,.9);
+          }}
+          .paseru-next .arrow {{
+            width:34px; height:34px; flex:0 0 34px; border-radius:50%;
+            display:flex; align-items:center; justify-content:center;
+            background:#fff; color:#17663e; font-size:20px; font-weight:900;
+          }}
+        </style>
         <button onclick="window.parent.document.querySelectorAll('button[data-baseweb=tab]')[{target_index}].click()"
-          style="width:33.333%;min-width:180px;padding:15px 18px;border:0;border-radius:10px;
-                 background:#b63f46;color:white;font-size:15px;font-weight:750;cursor:pointer;
-                 box-shadow:0 5px 14px -8px rgba(143,48,53,.48);">
-          {html.escape(label)}&nbsp;&nbsp;→
+          class="paseru-next" title="입력을 저장하고 다음 단계로 이동합니다">
+          <span>다음 단계로 이동 · {html.escape(label.replace('다음 · ', ''))}</span>
+          <span class="arrow">→</span>
         </button>
         """,
-        height=64,
+        height=76,
     )
 
 # ----------------------------------------------------------------------------
