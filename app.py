@@ -1065,7 +1065,7 @@ if not has_keys():
 # ----------------------------------------------------------------------------
 with st.container(border=True):
     card_title(0, "순찰 제목 · 출발·복귀 기준점")
-    patrol_title = st.text_input("순찰 제목", value="소방안전 순찰노선 - 성주군 일원")
+    patrol_title = st.text_input("순찰 제목", value="예시) 소방안전 순찰노선 - 성주군 일원")
     c1, c2, c3 = st.columns([1, 1.6, 1])
     with c1:
         station_name = st.text_input("출발 부서(소방서·센터) 이름", value="성주소방서")
