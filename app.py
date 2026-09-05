@@ -1106,18 +1106,38 @@ def next_tab_button(label, target_index):
         <script>
           function goNext() {{
             const doc = window.parent.document;
-            const candidates = Array.from(doc.querySelectorAll(
-              'button[role="tab"], [data-baseweb="tab-list"] button, button[data-baseweb="tab"]'
-            ));
             const wanted = '{target_name}';
-            const byName = candidates.find(el => (el.innerText || el.textContent || '').trim().includes(wanted));
-            const target = byName || candidates[{target_index}];
+            const buttons = Array.from(doc.querySelectorAll('button'));
+            let target = buttons.find(el => (el.innerText || el.textContent || '').trim().includes(wanted));
+            if (!target) {{
+              const labels = Array.from(doc.querySelectorAll('span, p, div')).filter(
+                el => (el.innerText || el.textContent || '').trim() === wanted
+              );
+              target = labels.length ? labels[0].closest('button,[role="tab"]') : null;
+            }}
             if (target) {{
+              if (!doc.getElementById('paseru-tab-attention-style')) {{
+                const style = doc.createElement('style');
+                style.id = 'paseru-tab-attention-style';
+                style.textContent = `
+                  @keyframes paseruTabPulse {{
+                    0%,100% {{background:transparent;box-shadow:0 0 0 0 rgba(35,133,83,0)}}
+                    50% {{background:#daf3e5;box-shadow:0 0 0 7px rgba(35,133,83,.24)}}
+                  }}
+                  .paseru-tab-attention {{border-radius:9px!important;animation:paseruTabPulse .75s ease-in-out 3!important}}
+                `;
+                doc.head.appendChild(style);
+              }}
+              target.classList.add('paseru-tab-attention');
               target.scrollIntoView({{behavior:'smooth', block:'start'}});
-              target.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true, view:window.parent}}));
               target.click();
             }} else {{
-              alert('다음 탭을 찾지 못했습니다. 상단의 {target_name} 탭을 눌러주세요.');
+              const btn = document.querySelector('.paseru-next');
+              btn.style.background = 'linear-gradient(135deg,#d58a18,#a96109)';
+              btn.style.borderColor = '#9b5908';
+              btn.querySelector('span:first-child').innerHTML = '상단의 <b>{target_name}</b> 탭을 클릭하세요';
+              btn.querySelector('.arrow').textContent = '↑';
+              window.parent.scrollTo({{top:0, behavior:'smooth'}});
             }}
           }}
         </script>
