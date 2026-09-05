@@ -606,6 +606,15 @@ div[data-testid="stAlert"]{
 }
 .paseru-sub{ color:#22324a !important; }
 
+/* 완료된 핵심 작업은 기존 실행 버튼 자리에 초록색 상태 버튼처럼 표시 */
+.paseru-complete-action{
+  width:100%; padding:.72rem 1rem; border-radius:10px;
+  background:#2f6b49; border:1px solid #24563b;
+  color:#ffffff !important; text-align:center; font-weight:750;
+  box-shadow:0 4px 12px -8px rgba(36,86,59,.55);
+}
+.paseru-complete-action *{ color:#ffffff !important; }
+
 /* ---- 내비게이션 버튼: 링크 기본색(파랑)에 밀리지 않도록 클래스로 고정 ---- */
 a.paseru-navbtn, a.paseru-navbtn:link, a.paseru-navbtn:visited,
 a.paseru-navbtn:hover, a.paseru-navbtn:active,
@@ -1066,14 +1075,12 @@ if not has_keys():
 with st.container(border=True):
     card_title(0, "순찰 제목 · 출발·복귀 기준점")
     patrol_title = st.text_input("순찰 제목", value="예시) 소방안전 순찰노선 - 성주군 일원")
-    c1, c2, c3 = st.columns([1, 1.6, 1])
+    c1, c2 = st.columns([1, 1.8])
     with c1:
         station_name = st.text_input("출발 부서(소방서·센터) 이름", value="성주소방서")
     with c2:
         station_address = st.text_input("출발 부서 주소", value="경상북도 성주군 성주읍 주산로 193")
-    with c3:
-        route_prefix = st.text_input("노선 이름 접두어", value="성주",
-                                     help="엑셀의 '노선이름' 열에 쓰입니다. 예) 성주 → 성주노선1")
+    route_prefix = station_name
 
 st.write("")
 
@@ -1093,10 +1100,11 @@ PURPOSE_HINT = {
 
 with st.container(border=True):
     card_title(1, "순찰 방법(노선 용도)")
-    purpose_label = st.pills("노선 용도", PURPOSE_OPTIONS, default=PURPOSE_OPTIONS[0],
+    purpose_label = st.pills("노선 용도", PURPOSE_OPTIONS, default=None,
                              label_visibility="collapsed")
     if not purpose_label:
-        purpose_label = PURPOSE_OPTIONS[0]
+        st.info("먼저 순찰방법을 하나 선택하면 대상 업로드와 세부 설정이 나타납니다.")
+        st.stop()
     if hasattr(st, "popover"):
         with st.popover("❔ 선택한 순찰방법 설명 보기"):
             st.write(PURPOSE_HINT.get(purpose_label, ""))
@@ -1209,12 +1217,20 @@ with st.container(border=True):
         ) or "전체 대상을 하나의 노선으로 연결"
         if commander_route_mode == "여러 차량으로 균등 분할":
             commander_vehicle_count = st.number_input("방문 차량 수", min_value=2, max_value=20, value=2)
-        st.caption("목표시간과 원거리 제외 없이 모든 현장을 실제 도로거리순으로 연결합니다.")
+        commander_summary = (
+            f"① 지휘관 현장방문 · {visit_purpose} · {commander_route_mode} · "
+            "시간 제한 없이 실제 도로거리상 가까운 순서로 연결"
+        )
+        st.success(f"선택 완료 · {commander_summary}")
 
 st.write("")
 
+# 대상 업로드 카드는 아래에서 데이터를 읽지만 화면상 이 위치(2단계)에 표시한다.
+upload_slot = st.container(border=True)
+st.write("")
+
 # ----------------------------------------------------------------------------
-# 2 · 순찰 기간 · 차량
+# 3 · 순찰 기간 · 차량
 # ----------------------------------------------------------------------------
 if "period_start" not in st.session_state:
     st.session_state["period_start"] = date(2026, 9, 23)
@@ -1224,7 +1240,7 @@ if "period_start" not in st.session_state:
 
 with st.container(border=True):
     if purpose == "inspect":
-        card_title(2, "예방검사 일정")
+        card_title(3, "예방검사 일정")
         st.caption("대상 파일에는 대상명과 주소만 준비하면 됩니다. 공통 검사 조건은 여기에서 한 번만 설정합니다.")
 
         ic1, ic2 = st.columns(2)
@@ -1290,7 +1306,7 @@ with st.container(border=True):
         )
         vehicle = st.selectbox("검사 차량", ["소방차", "구급차", "행정차", "개인차"], index=2)
     elif purpose == "season":
-        card_title(2, "계절순찰 일정")
+        card_title(3, "계절순찰 일정")
         dc1, dc2 = st.columns(2)
         with dc1:
             period_start = st.date_input("순찰 시작일", key="period_start")
@@ -1313,7 +1329,7 @@ with st.container(border=True):
             f"센터 편도 {int(season_oneway_limit)}분 초과 대상은 {season_delegate} 대상으로 분류합니다."
         )
     elif purpose == "hydrant":
-        card_title(2, "월간 지리조사 설정")
+        card_title(3, "월간 지리조사 설정")
         st.caption("당비비 근무 기준으로 한 달 10번의 당번일 안에 전체 소화전을 점검하도록 노선을 나눕니다.")
         hc1, hc2 = st.columns(2)
         with hc1:
@@ -1358,7 +1374,7 @@ with st.container(border=True):
             f"{int(hydrant_workdays)}개를 넘으면 시간을 늘리도록 안내합니다."
         )
     elif purpose == "other":
-        card_title(2, "지휘관 현장방문 일정")
+        card_title(3, "지휘관 현장방문 일정")
         visit_date = st.date_input("현장방문일", value=date.today(), key="commander_visit_date")
         commander_vehicle = st.selectbox("방문 차량", ["지휘차", "행정차", "소방차", "기타"])
         period_start = period_end = visit_date
@@ -1373,7 +1389,7 @@ with st.container(border=True):
         inspect_dates = []
         st.caption("시간 제한 없이 선택한 모든 현장을 하루 동안 실제 도로거리순으로 방문합니다.")
     else:
-        card_title(2, "순찰 기간 · 순찰 차량")
+        card_title(3, "순찰 기간 · 순찰 차량")
         inspect_weekdays = []
         inspect_teams = 1
         inspect_daily_hours = 6.0
@@ -1404,10 +1420,10 @@ with st.container(border=True):
 st.write("")
 
 # ----------------------------------------------------------------------------
-# 3 · 노선 조건 설정
+# 4 · 노선 조건 설정
 # ----------------------------------------------------------------------------
 with st.container(border=True):
-    card_title(3, "노선 조건 설정")
+    card_title(4, "노선 조건 설정")
 
     if purpose == "season":
         mode = "target_time"
@@ -1550,10 +1566,10 @@ with st.container(border=True):
 st.write("")
 
 # ----------------------------------------------------------------------------
-# 4 · 대상 목록 업로드
+# 2 · 대상 목록 업로드
 # ----------------------------------------------------------------------------
-with st.container(border=True):
-    card_title(4, "대상 목록 업로드")
+with upload_slot:
+    card_title(2, "대상 목록 업로드")
     st.markdown(
         """
         <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #d7a54a;
@@ -1625,9 +1641,9 @@ if df is not None and len(df):
 if df is not None and len(df):
     st.write("")
     with st.container(border=True):
-        card_title(5, "데이터 확인 · 좌표 찾기")
-        st.dataframe(df.head(10), use_container_width=True)
-        st.caption(f"총 {len(df)}건의 대상이 인식되었습니다.")
+        card_title(5, "좌표 검색 · 노선 생성")
+        with st.expander(f"🔎 업로드 데이터 확인 · 총 {len(df)}건", expanded=False):
+            st.dataframe(df, use_container_width=True, hide_index=True)
         if excluded_station_rows:
             st.info(f"ℹ️ 목록에 있던 출발지({station_name}) {excluded_station_rows}건은 "
                     "순찰 대상이 아니라 출발·복귀 지점이므로 자동으로 제외했습니다.")
@@ -1649,11 +1665,8 @@ if df is not None and len(df):
                  min(3, len(cols) - 1)),
         )
 
-        pc1, pc2 = st.columns(2)
-        with pc1:
-            name_col = st.selectbox("이름(대상명) 컬럼", cols, index=name_col_guess_idx)
-        with pc2:
-            addr_col = st.selectbox("지오코딩에 사용할 주소 컬럼", cols, index=addr_col_guess_idx)
+        name_col = cols[name_col_guess_idx]
+        addr_col = cols[addr_col_guess_idx]
 
         if purpose == "season" and season_scope == "선택한 대상만 순찰":
             season_choices = df[name_col].dropna().astype(str).tolist()
@@ -1671,33 +1684,9 @@ if df is not None and len(df):
         lng_col_guess = next((c for c in cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
         has_coords = bool(lat_col_guess and lng_col_guess)
 
-        sub_label("좌표 처리 방식")
-        if has_coords:
-            coord_mode_label = st.pills(
-                "좌표 처리 방식",
-                ["주소로 새로 찾기(권장)", "파일 좌표 + 검증", "파일 좌표 그대로 사용"],
-                default="주소로 새로 찾기(권장)", label_visibility="collapsed",
-            ) or "주소로 새로 찾기(권장)"
-            coord_mode = {
-                "주소로 새로 찾기(권장)": "geocode",
-                "파일 좌표 + 검증": "verify",
-                "파일 좌표 그대로 사용": "file",
-            }[coord_mode_label]
-            st.caption({
-                "geocode": "파일의 위·경도는 무시하고 주소만 보고 NCP Geocoding으로 좌표를 새로 찾습니다. "
-                           "가장 정확하며, 다른 도구로 만든 좌표가 틀렸을 때 이 방식으로 바로잡을 수 있습니다.",
-                "verify": "파일 좌표와 NCP가 찾은 좌표를 비교해, 차이가 큰 항목은 NCP 좌표로 바꾸고 목록으로 알려줍니다.",
-                "file": "파일에 적힌 좌표를 그대로 씁니다. 호출은 가장 적지만 좌표가 틀려도 걸러지지 않습니다.",
-            }[coord_mode])
-            if coord_mode == "verify":
-                verify_tol_km = st.number_input("검증 허용 오차(km) — 이보다 많이 다르면 NCP 좌표로 교체",
-                                                min_value=0.1, value=1.0, step=0.5)
-            else:
-                verify_tol_km = 1.0
-        else:
-            coord_mode = "geocode"
-            verify_tol_km = 1.0
-            st.caption("파일에 위·경도가 없어 주소로 좌표를 찾습니다(NCP Geocoding).")
+        # 대상명·주소 열과 좌표 처리방식은 앱이 자동 결정한다.
+        coord_mode = "file" if has_coords else "geocode"
+        verify_tol_km = 1.0
 
 
         n_targets = len(df)
@@ -1765,11 +1754,21 @@ if df is not None and len(df):
                 "목표시간이나 원거리 제외 없이 실제 도로거리순으로 전 대상을 연결합니다."
             )
 
-        st.caption(f"1단계에서 좌표를 먼저 확정하고, 2단계에서 그 좌표로 노선을 만듭니다. "
-                   f"좌표 찾기에는 약 {n_targets}~{n_targets * 3}회의 호출이 듭니다.")
-
-        find_coords = st.button("① 좌표 찾기 (주소 → 위·경도)", type="primary",
-                                disabled=(not has_keys() or n_targets == 0), use_container_width=True)
+        saved_coords = st.session_state.get("coords_df")
+        coords_complete = (saved_coords is not None and len(saved_coords) == n_targets
+                           and saved_coords["위도"].notna().all()
+                           and saved_coords["경도"].notna().all())
+        if coords_complete:
+            st.markdown(
+                '<div class="paseru-complete-action">✅ 좌표 검색 완료</div>',
+                unsafe_allow_html=True,
+            )
+            with st.expander("과정 보기 · 좌표를 다시 검색하려면 열기", expanded=False):
+                st.caption(f"{n_targets}개 대상의 좌표가 모두 확인되었습니다.")
+                find_coords = st.button("좌표 다시 검색", type="secondary", use_container_width=True)
+        else:
+            find_coords = st.button("① 좌표 검색 시작", type="primary",
+                                    disabled=(not has_keys() or n_targets == 0), use_container_width=True)
 
     # ---- 1단계: 좌표 확정 ---------------------------------------------------
     if find_coords:
@@ -1818,13 +1817,14 @@ if df is not None and len(df):
         prog.empty()
         st.session_state["coords_df"] = pd.DataFrame(rows)
         st.session_state.pop("route_results", None)   # 좌표가 바뀌었으니 이전 노선 결과는 폐기
+        if st.session_state["coords_df"]["위도"].notna().all() and st.session_state["coords_df"]["경도"].notna().all():
+            st.rerun()
 
     coords_df = st.session_state.get("coords_df")
 
     if coords_df is not None:
         st.write("")
-        with st.container(border=True):
-            card_title(6, "좌표 확인 · 직접 수정")
+        with st.expander("과정 보기 · 좌표 결과 확인 및 수정", expanded=False):
             ok_n = int(coords_df["위도"].notna().sum())
             fail_n = int(coords_df["위도"].isna().sum())
             k1, k2, k3 = st.columns(3)
@@ -1861,7 +1861,7 @@ if df is not None and len(df):
 
         st.write("")
         with st.container(border=True):
-            card_title(7, "노선 생성")
+            st.markdown("**노선 생성**")
             ready = edited["위도"].notna() & edited["경도"].notna()
             n_ready = int(ready.sum())
 
@@ -1870,17 +1870,24 @@ if df is not None and len(df):
             else:
                 est_calls = n_ready * (n_ready + 1) // 2 + n_ready
             est_sec = int(est_calls * 0.25)
-            st.info(f"좌표 확보 {n_ready}개소 기준 · 예상 NCP 호출 약 **{est_calls:,}회** "
-                    f"(약 {est_sec // 60}분 {est_sec % 60}초). "
-                    + ("‘API 호출 절약’이 켜져 있습니다." if candidate_k
-                       else "⚠ ‘API 호출 절약’이 꺼져 있어 호출량이 많습니다."))
-            st.caption(f"⛔ 최대 {max_calls:,}회까지만 호출하고 자동으로 멈춥니다.")
-
             if n_ready < len(edited):
                 st.warning(f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다.")
 
-            run = st.button("② 노선 생성 (실도로거리 계산)", type="primary",
-                            disabled=(not has_keys() or n_ready == 0), use_container_width=True)
+            route_complete = bool(st.session_state.get("route_results"))
+            if route_complete:
+                st.markdown(
+                    '<div class="paseru-complete-action">✅ 노선 생성 완료 · 아래에서 최종 결과 확인</div>',
+                    unsafe_allow_html=True,
+                )
+                with st.expander("과정 보기 · 노선을 다시 계산하려면 열기", expanded=False):
+                    st.write(f"좌표 {n_ready}개 · 예상 API 호출 약 {est_calls:,}회 · 최대 {max_calls:,}회")
+                    run = st.button("노선 다시 생성", type="secondary", use_container_width=True)
+            else:
+                with st.expander("과정 보기 · 예상 계산량", expanded=False):
+                    st.write(f"좌표 {n_ready}개 · 예상 API 호출 약 {est_calls:,}회 · 최대 {max_calls:,}회")
+                    st.caption(f"예상 계산시간 약 {est_sec // 60}분 {est_sec % 60}초")
+                run = st.button("② 노선 생성 시작", type="primary",
+                                disabled=(not has_keys() or n_ready == 0), use_container_width=True)
     else:
         run = False
         st.info("먼저 위의 **① 좌표 찾기**를 눌러 좌표를 확정해 주세요.")
@@ -2299,7 +2306,7 @@ if "route_results" in st.session_state:
 
     safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
     with st.container(border=True):
-        card_title(4, "최종 출력 · 현장 전달")
+        card_title("완료", "최종 출력 · 현장 전달")
         st.success("✅ 노선 생성이 완료되었습니다. 필요한 형식으로 최종 결과를 내려받으세요.")
         st.caption("엑셀 순찰표를 먼저 저장한 뒤, 현장 전달 방식에 따라 링크·QR·인쇄 자료를 선택하세요.")
 
