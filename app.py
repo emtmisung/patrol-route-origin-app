@@ -1074,6 +1074,8 @@ if not has_keys():
 
 def next_tab_button(label, target_index):
     """현재 입력을 유지한 채 다음 Streamlit 탭으로 이동한다."""
+    target_names = ["② 기본정보 · 대상목록", "③ 순찰 세부방법", "④ 노선 생성", "⑤ 노선 결과"]
+    target_name = target_names[target_index]
     components.html(
         f"""
         <style>
@@ -1096,11 +1098,29 @@ def next_tab_button(label, target_index):
             background:#fff; color:#17663e; font-size:20px; font-weight:900;
           }}
         </style>
-        <button onclick="window.parent.document.querySelectorAll('button[data-baseweb=tab]')[{target_index}].click()"
+        <button onclick="goNext()"
           class="paseru-next" title="입력을 저장하고 다음 단계로 이동합니다">
           <span>다음 단계로 이동 · {html.escape(label.replace('다음 · ', ''))}</span>
           <span class="arrow">→</span>
         </button>
+        <script>
+          function goNext() {{
+            const doc = window.parent.document;
+            const candidates = Array.from(doc.querySelectorAll(
+              'button[role="tab"], [data-baseweb="tab-list"] button, button[data-baseweb="tab"]'
+            ));
+            const wanted = '{target_name}';
+            const byName = candidates.find(el => (el.innerText || el.textContent || '').trim().includes(wanted));
+            const target = byName || candidates[{target_index}];
+            if (target) {{
+              target.scrollIntoView({{behavior:'smooth', block:'start'}});
+              target.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true, view:window.parent}}));
+              target.click();
+            }} else {{
+              alert('다음 탭을 찾지 못했습니다. 상단의 {target_name} 탭을 눌러주세요.');
+            }}
+          }}
+        </script>
         """,
         height=76,
     )
