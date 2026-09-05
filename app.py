@@ -2403,6 +2403,61 @@ with page_results:
                                else f"{min(visit_runs)}~{max(visit_runs)}회")
                 st.info(f"🔁 설정 기간 동안 같은 대상의 예상 방문 횟수: {repeat_text}")
 
+        # 결과 첫 화면: 노선 1을 즉시 체감할 수 있는 대표 결과
+        first_route = route_results[0] if route_results else None
+        if first_route:
+            st.markdown(
+                f"""
+                <div style="margin:1rem 0 1.1rem;padding:1.25rem 1.4rem;border-radius:18px;
+                            background:linear-gradient(135deg,#e9f8ef 0%,#f5fbf7 55%,#fff8df 100%);
+                            border:1px solid #9bcdb0;box-shadow:0 10px 28px -18px rgba(25,100,62,.65);">
+                  <div style="font-size:1.45rem;font-weight:850;color:#165d39;margin-bottom:.3rem;">
+                    🎉 노선이 완성되었습니다!
+                  </div>
+                  <div style="font-size:1rem;font-weight:650;color:#29483a;">
+                    먼저 노선 1을 확인해 보세요. 방문 순서와 실제 도로 경로가 한눈에 연결됩니다.
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"### 🚒 노선 1 · {len(first_route['stops'])}개소 · "
+                f"{first_route['total_km']:.1f}km · 약 {first_route['total_min']:.0f}분"
+            )
+            hero_list, hero_map = st.columns([0.9, 1.35])
+            with hero_list:
+                first_rows = [
+                    {"순서": i, "방문지": leg["to"], "이동시간": f"약 {leg['min']:.0f}분"}
+                    for i, leg in enumerate(first_route["legs"], start=1)
+                ]
+                first_rows.append({"순서": "↩", "방문지": f"복귀 · {station['name']}",
+                                   "이동시간": f"약 {first_route['back_min']:.0f}분"})
+                st.dataframe(pd.DataFrame(first_rows), use_container_width=True, hide_index=True)
+                first_kakao_links = kakao_route_links(station, first_route["legs"])
+                if first_kakao_links:
+                    first_kurl = first_kakao_links[0][0]
+                    st.link_button("🚗 지금 카카오맵에서 노선 1 길안내 열기", first_kurl,
+                                   use_container_width=True, type="primary")
+                    st.caption("휴대폰에서는 카카오맵 앱으로 연결됩니다.")
+            with hero_map:
+                hero = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
+                if first_route["path"]:
+                    folium.PolyLine(first_route["path"], color="#24704a", weight=6, opacity=.9).add_to(hero)
+                for i, leg in enumerate(first_route["legs"], start=1):
+                    folium.Marker([leg["lat"], leg["lng"]], tooltip=f"{i}. {leg['to']}",
+                                  icon=folium.DivIcon(icon_size=(30,30), icon_anchor=(15,15), html=(
+                                      '<div style="background:#1f6fb2;color:white;width:27px;height:27px;'
+                                      'border-radius:50%;border:2px solid white;display:flex;align-items:center;'
+                                      f'justify-content:center;font-weight:800;box-shadow:0 2px 7px #555;">{i}</div>'
+                                  ))).add_to(hero)
+                folium.Marker([station["lat"], station["lng"]], tooltip=f"출발·복귀: {station['name']}",
+                              icon=folium.Icon(color="red", icon="home")).add_to(hero)
+                st_folium(hero, height=410, use_container_width=True, key="hero_route_1_map")
+
+            st.markdown("---")
+            st.markdown("### 📂 전체 노선과 현장 전달 자료")
+
         # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
         with st.expander("선택 사항 · 노선별 담당 조와 조원 입력", expanded=False):
             st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
@@ -2528,44 +2583,51 @@ with page_results:
 
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
         with st.container(border=True):
-            card_title(5, "최종 출력 · 현장 전달")
-            st.success("✅ 노선 생성이 완료되었습니다. 필요한 형식으로 최종 결과를 내려받으세요.")
-            st.caption("엑셀 순찰표를 먼저 저장한 뒤, 현장 전달 방식에 따라 링크·QR·인쇄 자료를 선택하세요.")
+            card_title(5, "필요한 자료 내려받기")
+            st.caption("현장 전달 방식에 맞는 자료만 골라 내려받으세요.")
 
             out_left, out_right = st.columns(2)
             with out_left:
+                st.markdown("**🔵 행정·검토용 순찰표**")
                 st.download_button(
                     "📥 최종 순찰표 엑셀 받기",
                     data=build_wide_excel(station, route_results, far_points, meta),
                     file_name=f"{safe_title}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
+                    type="secondary",
                 )
             with out_right:
+                st.markdown("**🟡 현장 내비게이션 링크**")
                 st.download_button(
                     "🔗 카카오맵 경로·링크 엑셀 받기",
                     data=build_route_links_excel(station, route_results),
                     file_name=f"{safe_title}_노선별_경로와_링크.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
+                    type="secondary",
                 )
 
             qr_left, qr_right = st.columns(2)
             with qr_left:
+                st.markdown("**🟣 휴대폰 전달용 QR 묶음**")
                 st.download_button(
                     "📦 전체 노선 QR 묶음 받기",
                     data=build_qr_zip(station, route_results),
                     file_name=f"{safe_title}_QR코드_전체.zip",
                     mime="application/zip",
                     use_container_width=True,
+                    type="secondary",
                 )
             with qr_right:
+                st.markdown("**🟢 차량 비치용 인쇄자료**")
                 st.download_button(
                     "🖨 전체 노선 QR 인쇄문서 받기",
                     data=build_printable_qr_html(station, route_results, meta),
                     file_name=f"{safe_title}_QR인쇄.html",
                     mime="text/html",
                     use_container_width=True,
+                    type="secondary",
                 )
             st.caption("인쇄용 문서를 열고 오른쪽 위의 ‘인쇄하기’를 누르면 노선별로 A4 한 장씩 출력됩니다.")
 
@@ -2589,7 +2651,7 @@ with page_results:
                 members = ", ".join(rr.get("assigned_members") or [])
                 hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
             season_runs = (f" · 기간 중 {rr.get('period_runs', 0)}회 예상"
-                           if meta.get("purpose") == "계절순찰" and rr.get("period_runs") else "")
+                           if meta.get("purpose") == "③ 계절순찰" and rr.get("period_runs") else "")
             head = (f"노선 {rr['route_no']}" + hydrant_label + (f" · {team_name}" if team_name else "") +
                     f" — {len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분"
                     + season_runs + over_mark)
