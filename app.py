@@ -1026,7 +1026,7 @@ if not st.session_state.get("paseru_authenticated", False):
                 st.error("비밀번호가 올바르지 않습니다.")
     st.stop()
 
-with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설정하는 이유", expanded=True):
+with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설정하는 이유", expanded=False):
     st.markdown(
         """
         **파세루 오리진은 다음 순서로 사용합니다.**
@@ -2168,9 +2168,8 @@ if "route_results" in st.session_state:
               f"{len(far_points)}")
 
     # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
-    with st.container(border=True):
-        card_title("조", "노선별 담당 조 · 조원 입력")
-        st.caption("여기에 입력한 내용은 아래 엑셀 다운로드 파일에 그대로 들어갑니다.")
+    with st.expander("선택 사항 · 노선별 담당 조와 조원 입력", expanded=False):
+        st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
         for rr in route_results:
             tc1, tc2, tc3 = st.columns([0.8, 1.2, 2])
             with tc1:
@@ -2292,39 +2291,40 @@ if "route_results" in st.session_state:
         return buf.getvalue()
 
     safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
-    st.download_button(
-        "📥 전체 노선 엑셀(xlsx)로 다운로드",
-        data=build_wide_excel(station, route_results, far_points, meta),
-        file_name=f"{safe_title}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    with st.container(border=True):
+        card_title(4, "최종 출력 · 현장 전달")
+        st.success("✅ 노선 생성이 완료되었습니다. 필요한 형식으로 최종 결과를 내려받으세요.")
+        st.caption("엑셀 순찰표를 먼저 저장한 뒤, 현장 전달 방식에 따라 링크·QR·인쇄 자료를 선택하세요.")
 
-    links_col, qr_all_col, print_all_col = st.columns(3)
-    with links_col:
         st.download_button(
-            "📊 노선별 경로와 링크 엑셀",
+            "📥 최종 순찰표 엑셀 받기",
+            data=build_wide_excel(station, route_results, far_points, meta),
+            file_name=f"{safe_title}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        st.download_button(
+            "🔗 카카오맵 경로와 링크 엑셀 받기",
             data=build_route_links_excel(station, route_results),
             file_name=f"{safe_title}_노선별_경로와_링크.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
-    with qr_all_col:
         st.download_button(
-            "📦 노선별 QR코드 전체 다운로드",
+            "📦 전체 노선 QR코드 묶음 받기",
             data=build_qr_zip(station, route_results),
             file_name=f"{safe_title}_QR코드_전체.zip",
             mime="application/zip",
             use_container_width=True,
         )
-    with print_all_col:
         st.download_button(
-            "🖨 전체 노선 QR 인쇄용 문서",
+            "🖨 전체 노선 QR 인쇄용 문서 받기",
             data=build_printable_qr_html(station, route_results, meta),
             file_name=f"{safe_title}_QR인쇄.html",
             mime="text/html",
             use_container_width=True,
         )
-    st.caption("인쇄용 문서를 열고 오른쪽 위의 ‘인쇄하기’를 누르면 노선별로 A4 한 장씩 출력됩니다.")
+        st.caption("인쇄용 문서를 열고 오른쪽 위의 ‘인쇄하기’를 누르면 노선별로 A4 한 장씩 출력됩니다.")
 
     target_min_ref = meta.get("target_min")
     if target_min_ref:
