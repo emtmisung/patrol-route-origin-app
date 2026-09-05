@@ -6,6 +6,7 @@ import io
 import math
 import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, time as dtime, timedelta
 from urllib.parse import quote
 
@@ -1040,9 +1041,9 @@ with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설
         """
         **파세루 오리진은 다음 순서로 사용합니다.**
 
-        1. **업무 이름과 출발·복귀 지점 입력** — 어떤 계획인지 표시하고 모든 노선의 기준점을 정합니다.
-        2. **순찰 방법 선택** — 업무마다 대상 수, 반복 방식, 완료기한과 출동 여건이 달라 알맞은 편성 규칙을 적용합니다.
-        3. **대상명과 주소 업로드** — 개인정보 없이 노선 생성에 필요한 최소 정보만 사용합니다.
+        1. **기본 정보와 대상 목록 준비** — 순찰 제목·출발 부서를 입력하고 개인정보 없이 대상명과 주소만 업로드합니다.
+        2. **순찰 방법 선택** — 업로드한 대상을 어떤 목적으로 순찰할지 선택합니다.
+        3. **업무별 일정과 조건 설정** — 반복 방식·완료기한·차량·출동 여건 등 필요한 기준을 지정합니다.
         4. **좌표 확인 후 노선 생성** — 실제 도로거리와 시간을 계산하고 지도·카카오맵·QR·엑셀 결과를 만듭니다.
         """
     )
@@ -1070,10 +1071,10 @@ if not has_keys():
     )
 
 # ----------------------------------------------------------------------------
-# 0 · 순찰 제목 / 출발·복귀 기준점
+# 1 · 기본 정보 / 대상 목록
 # ----------------------------------------------------------------------------
 with st.container(border=True):
-    card_title(0, "순찰 제목 · 출발·복귀 기준점")
+    card_title(1, "기본 정보 · 대상 목록")
     patrol_title = st.text_input("순찰 제목", value="예시) 소방안전 순찰노선 - 성주군 일원")
     c1, c2 = st.columns([1, 1.8])
     with c1:
@@ -1082,10 +1083,149 @@ with st.container(border=True):
         station_address = st.text_input("출발 부서 주소", value="경상북도 성주군 성주읍 주산로 193")
     route_prefix = station_name
 
+    st.markdown("**대상 목록 업로드**")
+    st.markdown(
+        """
+        <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #d7a54a;
+                    border-left:5px solid #b7791f;border-radius:10px;background:#fff7e8;
+                    color:#5f3d0c;line-height:1.6;">
+          <div style="font-size:1.08rem;font-weight:750;margin-bottom:0.25rem;color:#744b0f;">
+            ⚠️ 개인정보가 포함된 파일은 업로드하지 마세요
+          </div>
+          <div style="font-size:0.96rem;font-weight:600;color:#5f3d0c;">
+            이 앱은 공개 앱입니다. 대상명과 주소만 입력하고, 개인 성명·담당자 실명·전화번호 등
+            개인정보와 민감정보는 파일에 포함하지 마세요.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    template_col, template_note_col = st.columns([1, 2])
+    with template_col:
+        st.download_button(
+            "📥 대상 목록 빈 양식(xlsx)", data=build_upload_template(),
+            file_name="파세루_대상목록_빈양식.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    with template_note_col:
+        st.caption("양식을 내려받아 노란색 `대상명·주소` 칸만 작성하세요. 개인정보와 민감정보는 입력하지 마세요.")
+    uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
+                                label_visibility="collapsed")
+    use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
+                             value=uploaded is None)
+
+df = None
+if uploaded is not None:
+    name_lower = uploaded.name.lower()
+    if name_lower.endswith(".csv"):
+        df = pd.read_csv(uploaded)
+    elif name_lower.endswith(".hwpx"):
+        df = parse_hwpx(uploaded.getvalue())
+        if df is None:
+            st.error("hwpx 파일에서 표나 목록을 찾지 못했습니다. 표 형식인지 확인해주세요.")
+    else:
+        df = pd.read_excel(uploaded)
+elif use_sample:
+    df = pd.read_excel(SAMPLE_XLSX)
+
+
+@st.cache_resource
+def coordinate_executor():
+    return ThreadPoolExecutor(max_workers=2, thread_name_prefix="paseru-coordinates")
+
+
+def search_coordinates_in_background(records, name_key, address_key, lat_key=None, lng_key=None):
+    rows = []
+    for record in records:
+        nm, ad = str(record.get(name_key, "")), str(record.get(address_key, ""))
+        file_lat = file_lng = None
+        if lat_key and lng_key:
+            try:
+                file_lat, file_lng = float(record.get(lat_key)), float(record.get(lng_key))
+                if math.isnan(file_lat) or math.isnan(file_lng):
+                    file_lat = file_lng = None
+            except (TypeError, ValueError):
+                file_lat = file_lng = None
+        if file_lat is not None:
+            rows.append({"대상명": nm, "주소": ad, "위도": file_lat, "경도": file_lng,
+                         "상태": "파일 좌표", "비고": "파일에 있던 좌표를 사용"})
+            continue
+        lat, lng, used_q, used_why, tried = geocode_with_fallback(ad, nm)
+        if lat is None:
+            rows.append({"대상명": nm, "주소": ad, "위도": None, "경도": None,
+                         "상태": "❌ 실패", "비고": "시도: " + " / ".join(tried)})
+        else:
+            rows.append({"대상명": nm, "주소": ad, "위도": lat, "경도": lng,
+                         "상태": "✅ 확인" if used_why == "원본 주소" else "🔧 주소 보정 후 확인",
+                         "비고": "" if used_why == "원본 주소" else f"{used_why} → {used_q}"})
+    return pd.DataFrame(rows)
+
+
+if df is not None and len(df):
+    pre_cols = list(df.columns)
+    pre_name_idx = next((i for i, c in enumerate(pre_cols) if str(c) not in ("연번",) and
+                         ("주소지" in str(c) or "이름" in str(c) or "명" in str(c))),
+                        1 if len(pre_cols) > 1 else 0)
+    pre_addr_idx = next((i for i, c in enumerate(pre_cols) if "정제" in str(c)),
+                        next((i for i, c in enumerate(pre_cols) if "주소" in str(c) and i != pre_name_idx),
+                             min(3, len(pre_cols) - 1)))
+    pre_lat = next((c for c in pre_cols if "위도" in str(c) or str(c).lower() == "lat"), None)
+    pre_lng = next((c for c in pre_cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
+    coord_signature = tuple((str(row[pre_cols[pre_name_idx]]), str(row[pre_cols[pre_addr_idx]]))
+                            for _, row in df.iterrows())
+    if st.session_state.get("coord_signature") != coord_signature:
+        st.session_state["coord_signature"] = coord_signature
+        st.session_state.pop("coords_df", None)
+        st.session_state.pop("coord_future", None)
+
+    with st.container(border=True):
+        card_title(3, "대상 좌표 우선 확인")
+        coord_future = st.session_state.get("coord_future")
+        saved_early = st.session_state.get("coords_df")
+        if coord_future is None and saved_early is None:
+            if st.button("🔴 좌표 검색 시작", type="primary", use_container_width=True,
+                         disabled=not has_keys()):
+                st.session_state["coord_future"] = coordinate_executor().submit(
+                    search_coordinates_in_background, df.to_dict("records"),
+                    pre_cols[pre_name_idx], pre_cols[pre_addr_idx], pre_lat, pre_lng,
+                )
+                st.rerun()
+        elif coord_future is not None and not coord_future.done():
+            @st.fragment(run_every="1s")
+            def poll_coordinate_search():
+                running = st.session_state.get("coord_future")
+                if running is not None and running.done():
+                    try:
+                        st.session_state["coords_df"] = running.result()
+                        st.session_state.pop("coord_future", None)
+                        st.rerun()
+                    except Exception as exc:
+                        st.session_state.pop("coord_future", None)
+                        st.error(f"⚠️ 좌표 검색 중 오류가 발생했습니다: {type(exc).__name__}")
+                else:
+                    st.info("🔍 좌표를 검색하고 있습니다…  ◀︎ 🔎 ▶︎  아래 순찰 용도와 일정을 계속 입력하세요.")
+            poll_coordinate_search()
+        elif coord_future is not None:
+            try:
+                st.session_state["coords_df"] = coord_future.result()
+                st.session_state.pop("coord_future", None)
+                st.rerun()
+            except Exception as exc:
+                st.session_state.pop("coord_future", None)
+                st.error(f"⚠️ 좌표 검색 중 오류가 발생했습니다: {type(exc).__name__}")
+        else:
+            fail_early = int(saved_early["위도"].isna().sum())
+            if fail_early:
+                st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
+            else:
+                with st.expander(f"🙂 좌표 검색 완료 · {len(saved_early)}건 결과 보기", expanded=False):
+                    st.dataframe(saved_early, use_container_width=True, hide_index=True)
+
 st.write("")
 
 # ----------------------------------------------------------------------------
-# 1 · 순찰 방법(노선 용도)
+# 2 · 순찰 방법과 세부 일정
 # ----------------------------------------------------------------------------
 PURPOSE_OPTIONS = [
     "① 지휘관 현장방문", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
@@ -1099,7 +1239,7 @@ PURPOSE_HINT = {
 }
 
 with st.container(border=True):
-    card_title(1, "순찰 방법(노선 용도)")
+    card_title(2, "순찰 방법 · 세부 조건")
     purpose_label = st.pills("노선 용도", PURPOSE_OPTIONS, default=None,
                              label_visibility="collapsed")
     if not purpose_label:
@@ -1226,12 +1366,8 @@ with st.container(border=True):
 
 st.write("")
 
-# 대상 업로드 카드는 아래에서 데이터를 읽지만 화면상 이 위치(2단계)에 표시한다.
-upload_slot = st.container(border=True)
-st.write("")
-
 # ----------------------------------------------------------------------------
-# 3 · 순찰 기간 · 차량
+# 2 · 순찰 일정
 # ----------------------------------------------------------------------------
 if "period_start" not in st.session_state:
     st.session_state["period_start"] = date(2026, 9, 23)
@@ -1241,7 +1377,7 @@ if "period_start" not in st.session_state:
 
 with st.container(border=True):
     if purpose == "inspect":
-        card_title(3, "예방검사 일정")
+        card_title(2, "예방검사 일정")
         st.caption("대상 파일에는 대상명과 주소만 준비하면 됩니다. 공통 검사 조건은 여기에서 한 번만 설정합니다.")
 
         ic1, ic2 = st.columns(2)
@@ -1307,7 +1443,7 @@ with st.container(border=True):
         )
         vehicle = st.selectbox("검사 차량", ["소방차", "구급차", "행정차", "개인차"], index=2)
     elif purpose == "season":
-        card_title(3, "계절순찰 일정")
+        card_title(2, "계절순찰 일정")
         dc1, dc2 = st.columns(2)
         with dc1:
             period_start = st.date_input("순찰 시작일", key="period_start")
@@ -1351,7 +1487,7 @@ with st.container(border=True):
             f"{season_strategy} · {period_days}일간"
         )
     elif purpose == "hydrant":
-        card_title(3, "월간 지리조사 설정")
+        card_title(2, "월간 지리조사 설정")
         st.caption("당비비 근무 기준으로 한 달 10번의 당번일 안에 전체 소화전을 점검하도록 노선을 나눕니다.")
         hc1, hc2 = st.columns(2)
         with hc1:
@@ -1396,7 +1532,7 @@ with st.container(border=True):
             f"{int(hydrant_workdays)}개를 넘으면 시간을 늘리도록 안내합니다."
         )
     elif purpose == "other":
-        card_title(3, "지휘관 현장방문 일정")
+        card_title(2, "지휘관 현장방문 일정")
         visit_date = st.date_input("현장방문일", value=date.today(), key="commander_visit_date")
         commander_vehicle = st.selectbox("방문 차량", ["지휘차", "행정차", "소방차", "기타"])
         period_start = period_end = visit_date
@@ -1411,7 +1547,7 @@ with st.container(border=True):
         inspect_dates = []
         st.caption("시간 제한 없이 선택한 모든 현장을 하루 동안 실제 도로거리순으로 방문합니다.")
     else:
-        card_title(3, "순찰 기간 · 순찰 차량")
+        card_title(2, "순찰 기간 · 순찰 차량")
         inspect_weekdays = []
         inspect_teams = 1
         inspect_daily_hours = 6.0
@@ -1444,7 +1580,7 @@ st.write("")
 # ----------------------------------------------------------------------------
 # 4 · 노선 조건 설정
 # ----------------------------------------------------------------------------
-with st.container(border=True):
+with st.expander("💡 ④ 상세 노선 조건 보기", expanded=False):
     card_title(4, "노선 조건 설정")
 
     if purpose == "season":
@@ -1587,59 +1723,6 @@ with st.container(border=True):
 
 st.write("")
 
-# ----------------------------------------------------------------------------
-# 2 · 대상 목록 업로드
-# ----------------------------------------------------------------------------
-with upload_slot:
-    card_title(2, "대상 목록 업로드")
-    st.markdown(
-        """
-        <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #d7a54a;
-                    border-left:5px solid #b7791f;border-radius:10px;background:#fff7e8;
-                    color:#5f3d0c;line-height:1.6;">
-          <div style="font-size:1.08rem;font-weight:750;margin-bottom:0.25rem;color:#744b0f;">
-            ⚠️ 개인정보가 포함된 파일은 업로드하지 마세요
-          </div>
-          <div style="font-size:0.96rem;font-weight:600;color:#5f3d0c;">
-            이 앱은 공개 앱입니다. 대상명과 주소만 입력하고, 개인 성명·담당자 실명·전화번호 등
-            개인정보와 민감정보는 파일에 포함하지 마세요.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    template_col, template_note_col = st.columns([1, 2])
-    with template_col:
-        st.download_button(
-            "📥 대상 목록 빈 양식(xlsx)",
-            data=build_upload_template(),
-            file_name="파세루_대상목록_빈양식.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    with template_note_col:
-        st.caption("양식을 내려받아 노란색 `대상명·주소` 칸만 작성하면 됩니다. "
-                   "성명·전화번호·검사결과 등 개인정보와 민감정보는 입력하지 마세요.")
-    st.caption("작성한 엑셀 또는 기존 xlsx/xls·CSV·아래아한글(hwpx) 표를 올리면 자동으로 인식합니다.")
-    uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
-                                label_visibility="collapsed")
-    use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
-                             value=uploaded is None)
-
-df = None
-if uploaded is not None:
-    name_lower = uploaded.name.lower()
-    if name_lower.endswith(".csv"):
-        df = pd.read_csv(uploaded)
-    elif name_lower.endswith(".hwpx"):
-        df = parse_hwpx(uploaded.getvalue())
-        if df is None:
-            st.error("hwpx 파일에서 표나 목록을 찾지 못했습니다. 표 형식인지 확인해주세요.")
-    else:
-        df = pd.read_excel(uploaded)
-elif use_sample:
-    df = pd.read_excel(SAMPLE_XLSX)
-
 # 출발지(소방서·센터) 자신이 순찰 대상 목록에 섞여 있으면 제외한다.
 # (업로드 파일 첫 줄에 소방서를 넣어두는 경우가 많아, 그대로 두면 소방서가 경유지로 잡힌다)
 excluded_station_rows = 0
@@ -1772,16 +1855,20 @@ if df is not None and len(df):
                            and saved_coords["경도"].notna().all())
         coord_action_col, _ = st.columns([1, 1])
         with coord_action_col:
-            if coords_complete:
+            background_search = st.session_state.get("coord_future")
+            if background_search is not None and not background_search.done():
+                st.info("🔍 좌표 검색 중 · 위의 검색 상태에서 완료 여부를 확인하세요.")
+                find_coords = False
+            elif coords_complete:
                 st.markdown(
-                    '<div class="paseru-complete-action">✅ 좌표 검색 완료</div>',
+                    '<div class="paseru-complete-action">🙂 좌표 검색 완료</div>',
                     unsafe_allow_html=True,
                 )
                 with st.expander("과정 보기 · 좌표 다시 검색", expanded=False):
                     st.caption(f"{n_targets}개 대상의 좌표가 모두 확인되었습니다.")
                     find_coords = st.button("좌표 다시 검색", type="secondary", use_container_width=True)
             else:
-                find_coords = st.button("① 좌표 검색 시작", type="primary",
+                find_coords = st.button("🔴 좌표 검색 시작", type="primary",
                                         disabled=(not has_keys() or n_targets == 0), use_container_width=True)
 
     # ---- 1단계: 좌표 확정 ---------------------------------------------------
@@ -2213,12 +2300,19 @@ if "route_results" in st.session_state:
                    f"{meta.get('period_label', '순찰기간')} {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
                    + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("생성 노선 수", f"{len(route_results)}")
     m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
     m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
-    m4.metric("편도 기준 초과" if meta.get("purpose") == "③ 계절순찰" else "원거리 분리 대상",
+    m4.metric("노선 평균시간", f"{sum(r['total_min'] for r in route_results) / max(len(route_results), 1):.0f}분")
+    m5.metric("편도 기준 초과" if meta.get("purpose") == "③ 계절순찰" else "원거리 분리 대상",
               f"{len(far_points)}")
+    if meta.get("purpose") == "③ 계절순찰":
+        visit_runs = [r.get("period_runs", 0) for r in route_results if r.get("period_runs")]
+        if visit_runs:
+            repeat_text = (f"{min(visit_runs)}회" if min(visit_runs) == max(visit_runs)
+                           else f"{min(visit_runs)}~{max(visit_runs)}회")
+            st.info(f"🔁 설정 기간 동안 같은 대상의 예상 방문 횟수: {repeat_text}")
 
     # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
     with st.expander("선택 사항 · 노선별 담당 조와 조원 입력", expanded=False):
