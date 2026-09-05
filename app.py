@@ -1093,7 +1093,7 @@ PURPOSE_OPTIONS = [
 PURPOSE_HINT = {
     "① 지휘관 현장방문": "풍수해·산불·재난지역 등 모든 현장을 하루에 실제 도로거리순으로 방문합니다.",
     "② 특별경계근무용": "명절·선거·축제 등 특별경계근무 — 휴무 공장과 터미널·역·공항·행사장 등 주요 대상을 하루 1~2회 반복 순찰합니다.",
-    "③ 계절순찰": "봄·가을·겨울 산림인접 대상과 여름 풍수해 대상을 매일 약 1시간씩 다른 구간으로 순찰합니다.",
+    "③ 계절순찰": "정해진 기간 동안 수행자·차량·편도 제한·1회 최대시간을 반영해 반복형 또는 전 대상 순환형 노선을 만듭니다.",
     "④ 예방검사": "숙박업소 등 점검 순찰.",
     "⑤ 지리조사(센터용)": "소화전 등 팀별 순회 — 팀 수·목표시간 기준으로 노선수를 자동 산출합니다.",
 }
@@ -1127,11 +1127,13 @@ with st.container(border=True):
     hydrant_target_min = 90
     hydrant_max_min = 120
     hydrant_inspection_min = 5
-    season_scope = "전체 대상 전수순찰"
-    season_actor = "소방센터 출동대"
+    season_scope = "전체 대상"
+    season_actor = "소방공무원"
     season_vehicle = "소방차"
+    season_limit_basis = "편도시간(분)"
     season_oneway_limit = 20
-    season_delegate = "센터장·행정차 또는 의용소방대"
+    season_strategy = "매일 다른 대상 순환"
+    season_delegate = "기준 초과 대상 별도 검토"
     commander_route_mode = "전체 대상을 하나의 노선으로 연결"
     commander_vehicle_count = 1
 
@@ -1147,33 +1149,40 @@ with st.container(border=True):
                 guard_rounds = st.pills("하루 반복 횟수", ["1회", "2회", "3회"], default="1회",
                                         label_visibility="collapsed")
     elif purpose == "season":
-        sc1, sc2 = st.columns(2)
-        with sc1:
-            season_name = st.pills("계절", ["봄", "여름", "가을", "겨울"], default="여름") or "여름"
-        with sc2:
-            season_target_type = st.text_input(
-                "순찰 대상 유형",
-                value="풍수해취약지역" if season_name == "여름" else "산림인접·산불취약지역",
-            )
         season_scope = st.pills(
             "순찰 범위",
-            ["전체 대상 전수순찰", "선택한 대상만 순찰"],
-            default="전체 대상 전수순찰",
-        ) or "전체 대상 전수순찰"
-        sc3, sc4, sc5 = st.columns(3)
+            ["전체 대상", "선택 대상"],
+            default="전체 대상",
+        ) or "전체 대상"
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            season_actor = st.pills(
+                "누가 순찰합니까?", ["소방공무원", "의용소방대"], default="소방공무원"
+            ) or "소방공무원"
+        with sc2:
+            season_vehicle = st.pills(
+                "어떤 차량을 이용합니까?", ["소방차", "구급차", "행정차", "일반차"], default="소방차"
+            ) or "소방차"
+        sc3, sc4 = st.columns(2)
         with sc3:
-            season_actor = st.selectbox("순찰 수행 주체", ["소방센터 출동대", "센터장", "행정요원", "의용소방대"])
+            season_limit_basis = st.pills(
+                "센터 기준 편도 제한", ["편도시간(분)", "편도거리(km)"], default="편도시간(분)"
+            ) or "편도시간(분)"
         with sc4:
-            season_vehicle = st.selectbox("순찰 차량", ["소방차", "구급차", "행정차", "개인차(의용소방대)"])
-        with sc5:
             season_oneway_limit = st.number_input(
-                "센터 기준 편도 제한시간(분)", min_value=5, max_value=120,
-                value=20 if season_vehicle in ("소방차", "구급차") else 30, step=5,
+                "편도 제한값",
+                min_value=1.0,
+                max_value=120.0,
+                value=20.0 if season_limit_basis == "편도시간(분)" else 15.0,
+                step=5.0 if season_limit_basis == "편도시간(분)" else 1.0,
+                help="선택한 시간 또는 거리 기준을 넘는 대상은 별도 검토 대상으로 표시합니다.",
             )
-        season_delegate = st.selectbox(
-            "제한시간 초과 대상 권장 수행",
-            ["센터장·행정차 또는 의용소방대", "센터장·행정차", "의용소방대"],
-        )
+        season_strategy = st.pills(
+            "기간 중 순찰 방식",
+            ["같은 코스 매일 반복", "매일 다른 대상 순환"],
+            default="매일 다른 대상 순환",
+            help="반복형은 한 코스를 집중 순찰하고, 순환형은 기간 동안 전체 대상의 누락 없는 순찰을 우선합니다.",
+        ) or "매일 다른 대상 순환"
     elif purpose == "hydrant":
         hc1, hc2 = st.columns(2)
         with hc1:
@@ -1312,9 +1321,16 @@ with st.container(border=True):
             period_start = st.date_input("순찰 시작일", key="period_start")
         with dc2:
             period_end = st.date_input("순찰 종료일", key="period_end")
-        season_target_min = 60
-        season_allowance = st.slider("하루 순찰 허용 범위(분, ±)", 0, 30, 10)
-        season_stop_min = st.number_input("대상당 현장 확인시간(분)", min_value=0, max_value=30, value=2)
+        sc_time1, sc_time2 = st.columns(2)
+        with sc_time1:
+            season_target_min = st.number_input(
+                "1회 순찰 최대시간(분)", min_value=20, max_value=360, value=60, step=10,
+                help="출발·복귀 이동과 대상별 현장 확인시간을 모두 포함한 최대시간입니다.",
+            )
+        with sc_time2:
+            season_stop_min = st.number_input(
+                "대상당 현장 확인시간(분)", min_value=0, max_value=30, value=2,
+            )
         start_dt = datetime.combine(period_start, dtime(9, 0))
         end_dt = datetime.combine(period_end, dtime(18, 0))
         period_days = max(1, (period_end - period_start).days + 1)
@@ -1325,8 +1341,13 @@ with st.container(border=True):
         inspect_minutes = 40
         inspect_dates = []
         st.caption(
-            f"{season_actor} · {season_vehicle} · 하루 약 {season_target_min}분 · "
-            f"센터 편도 {int(season_oneway_limit)}분 초과 대상은 {season_delegate} 대상으로 분류합니다."
+            f"{period_days}일간 · {season_actor} · {season_vehicle} · 1회 최대 {int(season_target_min)}분 · "
+            f"센터 기준 {season_limit_basis} {season_oneway_limit:g} 초과 대상은 별도 검토합니다."
+        )
+        st.success(
+            f"선택 완료 · ③ 계절순찰 · {season_scope} · {season_actor} · {season_vehicle} · "
+            f"편도 {season_limit_basis} {season_oneway_limit:g} · 1회 최대 {int(season_target_min)}분 · "
+            f"{season_strategy} · {period_days}일간"
         )
     elif purpose == "hydrant":
         card_title(3, "월간 지리조사 설정")
@@ -1428,8 +1449,8 @@ with st.container(border=True):
     if purpose == "season":
         mode = "target_time"
         target_min = int(season_target_min)
-        target_min_low = max(10, target_min - int(season_allowance))
-        target_min_high = target_min + int(season_allowance)
+        target_min_low = None
+        target_min_high = target_min
         seg_max_km = seg_max_min = None
         max_per_route = 100
         max_routes_cap = 0
@@ -1437,9 +1458,9 @@ with st.container(border=True):
         basis = "time"
         st.markdown("**계절순찰 자동 편성 기준**")
         st.caption(
-            f"하루 약 {target_min}분을 기준으로 매일 조금씩 다른 구간을 편성합니다. "
-            f"{season_vehicle}의 센터 편도 제한은 {int(season_oneway_limit)}분이며, "
-            f"이를 넘는 대상은 {season_delegate} 순찰 대상으로 분리합니다."
+            f"1회 최대 {target_min}분 · {season_strategy}. "
+            f"{season_vehicle}의 센터 기준 {season_limit_basis} 제한값은 {season_oneway_limit:g}이며, "
+            "이를 넘는 대상은 별도 검토 대상으로 분리합니다."
         )
     elif purpose == "hydrant":
         mode = "target_time"
@@ -1537,8 +1558,8 @@ with st.container(border=True):
     elif purpose == "season":
         long_threshold = 99999.0
         st.caption(
-            f"직선거리가 아닌 실제 도로의 편도 소요시간으로 판단합니다. "
-            f"{int(season_oneway_limit)}분 초과 대상은 {season_delegate} 권장 대상으로 표시합니다."
+            f"직선거리가 아닌 실제 도로의 {season_limit_basis} 기준으로 판단합니다. "
+            f"제한값 {season_oneway_limit:g} 초과 대상은 별도 검토 대상으로 표시합니다."
         )
     else:
         long_threshold = 99999.0
@@ -1670,7 +1691,7 @@ if df is not None and len(df):
         name_col = cols[name_col_guess_idx]
         addr_col = cols[addr_col_guess_idx]
 
-        if purpose == "season" and season_scope == "선택한 대상만 순찰":
+        if purpose == "season" and season_scope == "선택 대상":
             season_choices = df[name_col].dropna().astype(str).tolist()
             selected_season_targets = st.multiselect(
                 "이번 계절순찰에 포함할 대상",
@@ -1742,12 +1763,11 @@ if df is not None and len(df):
             sp1, sp2, sp3, sp4 = st.columns(4)
             sp1.metric("선택 대상", f"{n_targets}개소")
             sp2.metric("순찰 기간", f"{period_days}일")
-            sp3.metric("하루 목표", f"{int(season_target_min)}분")
-            sp4.metric("편도 제한", f"{int(season_oneway_limit)}분")
+            sp3.metric("1회 최대", f"{int(season_target_min)}분")
+            sp4.metric("편도 제한", f"{season_oneway_limit:g}{'분' if season_limit_basis == '편도시간(분)' else 'km'}")
             st.caption(
-                f"{season_name} · {season_target_type} · {season_scope} · "
-                f"{season_actor}/{season_vehicle}. 실제 도로시간을 계산한 뒤 원거리 대상은 "
-                f"{season_delegate} 권장 대상으로 구분합니다."
+                f"{season_scope} · {season_actor}/{season_vehicle} · {season_strategy}. "
+                f"실제 도로의 {season_limit_basis} 기준을 넘는 대상은 별도 검토 대상으로 구분합니다."
             )
         elif purpose == "other":
             st.markdown("**👨‍🚒 지휘관 현장방문 계획**")
@@ -1964,10 +1984,17 @@ if df is not None and len(df):
                                             f"({call_counter['n']:,}/{max_calls:,}회)")
 
             if purpose == "season":
-                normal_points, far_points = separate_long_time(
-                    points, station, int(season_oneway_limit), season_delegate,
-                    on_call=bump, should_stop=over_limit,
-                )
+                if season_limit_basis == "편도시간(분)":
+                    normal_points, far_points = separate_long_time(
+                        points, station, float(season_oneway_limit), season_delegate,
+                        on_call=bump, should_stop=over_limit,
+                    )
+                else:
+                    normal_points, far_points = separate_long_distance(
+                        points, station, float(season_oneway_limit), on_call=bump,
+                        save_calls=False, should_stop=over_limit,
+                    )
+                    far_points = [{**point, "권장수행": season_delegate} for point in far_points]
             else:
                 normal_points, far_points = separate_long_distance(
                     points, station, long_threshold, on_call=bump, save_calls=bool(candidate_k),
@@ -2019,6 +2046,11 @@ if df is not None and len(df):
             )
         build_progress.empty()
 
+        season_deferred_count = 0
+        if purpose == "season" and season_strategy == "같은 코스 매일 반복" and len(routes) > 1:
+            season_deferred_count = sum(len(route) for route in routes[1:])
+            routes = routes[:1]
+
         if limit_hit["v"]:
             st.warning(
                 f"⛔ API 호출 한도({max_calls:,}회)에 도달해 노선 편성을 중단했습니다. "
@@ -2039,9 +2071,10 @@ if df is not None and len(df):
             team_info = (f" · {hydrant_member_count}명 개인별 {count_text}"
                          f" · 차량 {hydrant_vehicle_count}대 · 월 {hydrant_workdays}근무일")
         elif purpose == "season":
-            team_info = (f" · {season_name}/{season_target_type} · {season_actor}/{season_vehicle}"
-                         f" · 하루 약 {int(season_target_min)}분"
-                         f" · 원거리 {season_delegate} 권장")
+            limit_unit = "분" if season_limit_basis == "편도시간(분)" else "km"
+            team_info = (f" · {season_scope} · {season_actor}/{season_vehicle}"
+                         f" · 1회 최대 {int(season_target_min)}분 · {season_strategy}"
+                         f" · 편도 {season_oneway_limit:g}{limit_unit} 제한")
         elif purpose == "other":
             team_info = (f" · {visit_purpose} · {commander_route_mode}"
                          + (f"({int(commander_vehicle_count)}대)"
@@ -2058,9 +2091,16 @@ if df is not None and len(df):
         elif purpose == "guard":
             team_info = f" · 매일 다른 코스로 순환({period_days}일간 {len(routes)}개 노선 배정)"
 
-        far_word = "원거리 위임 권장" if purpose == "season" else "장거리 별도"
+        far_word = "편도 기준 초과" if purpose == "season" else "장거리 별도"
         st.success(f"[{purpose_label}] 총 {len(routes)}개 노선, {sum(len(r) for r in routes)}개소 배정 완료 "
                    f"({far_word} {len(far_points)}개소){team_info}")
+        if purpose == "season" and season_strategy == "같은 코스 매일 반복":
+            st.info(
+                f"집중 순찰 대상으로 {sum(len(route) for route in routes)}개소를 선정해 "
+                f"{period_days}일 동안 같은 코스를 매일 반복합니다."
+                + (f" 나머지 {season_deferred_count}개소는 이번 반복 코스에 포함되지 않습니다."
+                   if season_deferred_count else "")
+            )
 
         # 5) 확정 노선의 구간별 실도로거리·경로좌표
         route_results = []
@@ -2134,16 +2174,22 @@ if df is not None and len(df):
                 st.success(f"월 {int(hydrant_workdays)}번의 당번일 안에 전수조사가 가능합니다. {detail}")
         elif purpose == "season":
             required_days = len(route_results)
-            if required_days > period_days:
+            if season_strategy == "같은 코스 매일 반복":
+                st.success(
+                    f"선정된 한 개 코스를 {period_days}일 동안 매일 반복하도록 편성했습니다. "
+                    "집중 순찰이 필요한 대상과 방문 순서를 최종 확인하세요."
+                )
+            elif required_days > period_days:
                 st.warning(
-                    f"현재 하루 약 {int(season_target_min)}분 기준으로 {required_days}일이 필요하지만 "
+                    f"전 대상을 누락 없이 순찰하려면 1회 최대 {int(season_target_min)}분 기준으로 "
+                    f"{required_days}일이 필요하지만 "
                     f"설정한 기간은 {period_days}일입니다. 기간을 {required_days}일 이상으로 늘리거나 "
-                    "하루 순찰시간을 늘려 다시 편성해주세요."
+                    "1회 최대시간을 늘려 다시 편성해주세요."
                 )
             else:
                 st.success(
-                    f"가까운 대상은 {required_days}일에 나누어 순찰할 수 있어 "
-                    f"설정 기간 {period_days}일 안에 편성이 가능합니다."
+                    f"전 대상을 {required_days}개 코스로 나누어 "
+                    f"설정 기간 {period_days}일 안에 누락 없이 순찰할 수 있습니다."
                 )
 
         st.session_state["station"] = station
@@ -2187,7 +2233,7 @@ if "route_results" in st.session_state:
     m1.metric("생성 노선 수", f"{len(route_results)}")
     m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
     m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
-    m4.metric("원거리 위임 권장" if meta.get("purpose") == "③ 계절순찰" else "원거리 분리 대상",
+    m4.metric("편도 기준 초과" if meta.get("purpose") == "③ 계절순찰" else "원거리 분리 대상",
               f"{len(far_points)}")
 
     # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
@@ -2319,34 +2365,41 @@ if "route_results" in st.session_state:
         st.success("✅ 노선 생성이 완료되었습니다. 필요한 형식으로 최종 결과를 내려받으세요.")
         st.caption("엑셀 순찰표를 먼저 저장한 뒤, 현장 전달 방식에 따라 링크·QR·인쇄 자료를 선택하세요.")
 
-        st.download_button(
-            "📥 최종 순찰표 엑셀 받기",
-            data=build_wide_excel(station, route_results, far_points, meta),
-            file_name=f"{safe_title}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        st.download_button(
-            "🔗 카카오맵 경로와 링크 엑셀 받기",
-            data=build_route_links_excel(station, route_results),
-            file_name=f"{safe_title}_노선별_경로와_링크.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        st.download_button(
-            "📦 전체 노선 QR코드 묶음 받기",
-            data=build_qr_zip(station, route_results),
-            file_name=f"{safe_title}_QR코드_전체.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
-        st.download_button(
-            "🖨 전체 노선 QR 인쇄용 문서 받기",
-            data=build_printable_qr_html(station, route_results, meta),
-            file_name=f"{safe_title}_QR인쇄.html",
-            mime="text/html",
-            use_container_width=True,
-        )
+        out_left, out_right = st.columns(2)
+        with out_left:
+            st.download_button(
+                "📥 최종 순찰표 엑셀 받기",
+                data=build_wide_excel(station, route_results, far_points, meta),
+                file_name=f"{safe_title}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        with out_right:
+            st.download_button(
+                "🔗 카카오맵 경로·링크 엑셀 받기",
+                data=build_route_links_excel(station, route_results),
+                file_name=f"{safe_title}_노선별_경로와_링크.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+        qr_left, qr_right = st.columns(2)
+        with qr_left:
+            st.download_button(
+                "📦 전체 노선 QR 묶음 받기",
+                data=build_qr_zip(station, route_results),
+                file_name=f"{safe_title}_QR코드_전체.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+        with qr_right:
+            st.download_button(
+                "🖨 전체 노선 QR 인쇄문서 받기",
+                data=build_printable_qr_html(station, route_results, meta),
+                file_name=f"{safe_title}_QR인쇄.html",
+                mime="text/html",
+                use_container_width=True,
+            )
         st.caption("인쇄용 문서를 열고 오른쪽 위의 ‘인쇄하기’를 누르면 노선별로 A4 한 장씩 출력됩니다.")
 
     target_min_ref = meta.get("target_min")
@@ -2493,13 +2546,13 @@ if "route_results" in st.session_state:
 
     if far_points:
         is_season_far = meta.get("purpose") == "③ 계절순찰"
-        st.header("🚙 원거리 위임 권장 대상" if is_season_far else "⚠️ 장거리 별도 대상")
+        st.header("🚙 편도 기준 초과 대상" if is_season_far else "⚠️ 장거리 별도 대상")
         far_df = pd.DataFrame(far_points)
         far_columns = ["name", "address", "도로거리_km"]
         if is_season_far:
             far_columns += ["편도시간_분", "권장수행"]
-            st.info("출동 공백을 줄이기 위해 설정한 편도 제한시간을 넘는 대상입니다. "
-                    "센터장·행정차 또는 의용소방대 순찰 대상으로 검토하세요.")
+            st.info("선택한 편도 시간 또는 거리 제한값을 넘는 대상입니다. "
+                    "수행자·차량·제한 기준을 조정하거나 별도 순찰 대상으로 검토하세요.")
         st.dataframe(far_df[[column for column in far_columns if column in far_df.columns]],
                      use_container_width=True, hide_index=True)
         for p in far_points:
