@@ -538,6 +538,13 @@ div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
   box-shadow:0 5px 14px -8px rgba(143,48,53,.48);
 }
 div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
+/* 로그인 시작 버튼은 마우스를 올렸을 때 밝은 초록색으로 명확하게 반응 */
+div.stFormSubmitter > button:hover,
+div.stFormSubmitter > button:hover *{
+  background:#238553 !important;
+  color:#ffffff !important;
+  -webkit-text-fill-color:#ffffff !important;
+}
 /* 전역 글자색 규칙보다 우선해 주요 빨간 버튼의 글자를 항상 흰색으로 표시 */
 div.stButton > button:not([kind="secondary"]),
 div.stButton > button:not([kind="secondary"]) *,
@@ -559,6 +566,12 @@ div[data-testid="stExpander"]{
   border:1px solid var(--line) !important; border-radius:12px !important;
   background:var(--surface); overflow:hidden;
   box-shadow:0 1px 6px rgba(23,38,58,.04);
+}
+/* 긴 화면에서도 단계 탭을 잃지 않도록 상단에 고정 */
+div[data-testid="stTabs"] [data-baseweb="tab-list"]{
+  position:sticky; top:.25rem; z-index:50;
+  background:rgba(255,255,255,.96); backdrop-filter:blur(8px);
+  padding-top:.25rem;
 }
 
 /* ---- 대비 강화: 지표·표·라벨이 흐리게 보이지 않도록 ---- */
@@ -1129,8 +1142,9 @@ def next_tab_button(label, target_index):
                 doc.head.appendChild(style);
               }}
               target.classList.add('paseru-tab-attention');
-              target.scrollIntoView({{behavior:'smooth', block:'start'}});
               target.click();
+              const tabBar = target.closest('[data-baseweb="tab-list"]') || target;
+              setTimeout(() => tabBar.scrollIntoView({{behavior:'smooth', block:'start'}}), 80);
             }} else {{
               const btn = document.querySelector('.paseru-next');
               btn.style.background = 'linear-gradient(135deg,#d58a18,#a96109)';
@@ -2582,8 +2596,8 @@ with page_results:
             return buf.getvalue()
 
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
-        with st.container(border=True):
-            card_title(5, "필요한 자료 내려받기")
+        with st.expander("📂 전체 노선 · 현장 전달 자료 내려받기", expanded=False):
+            st.markdown("### 필요한 자료 내려받기")
             st.caption("현장 전달 방식에 맞는 자료만 골라 내려받으세요.")
 
             out_left, out_right = st.columns(2)
@@ -2643,7 +2657,15 @@ with page_results:
             else:
                 st.success(f"⏱ 모든 노선이 목표 {target_min_ref}분 이내입니다.")
 
-        for rr in route_results:
+        st.markdown("### 🗺️ 다른 노선 확인")
+        selected_route_no = st.selectbox(
+            "확인할 노선",
+            [rr["route_no"] for rr in route_results],
+            format_func=lambda value: f"노선 {value}",
+            label_visibility="collapsed",
+        )
+        selected_route = next(rr for rr in route_results if rr["route_no"] == selected_route_no)
+        for rr in [selected_route]:
             team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
             over_mark = " ⏱초과" if target_min_ref and rr["total_min"] > target_min_ref else ""
             hydrant_label = ""
