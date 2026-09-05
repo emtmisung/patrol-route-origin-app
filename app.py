@@ -1071,6 +1071,21 @@ if not has_keys():
         "NCP_CLIENT_ID / NCP_CLIENT_SECRET 값을 등록해주세요."
     )
 
+
+def next_tab_button(label, target_index):
+    """현재 입력을 유지한 채 다음 Streamlit 탭으로 이동한다."""
+    components.html(
+        f"""
+        <button onclick="window.parent.document.querySelectorAll('button[data-baseweb=tab]')[{target_index}].click()"
+          style="width:33.333%;min-width:180px;padding:15px 18px;border:0;border-radius:10px;
+                 background:#b63f46;color:white;font-size:15px;font-weight:750;cursor:pointer;
+                 box-shadow:0 5px 14px -8px rgba(143,48,53,.48);">
+          {html.escape(label)}&nbsp;&nbsp;→
+        </button>
+        """,
+        height=64,
+    )
+
 # ----------------------------------------------------------------------------
 page_basic, page_details, page_build, page_results = st.tabs([
     "② 기본정보 · 대상목록",
@@ -1236,6 +1251,16 @@ with page_basic:
                             st.dataframe(saved_early, use_container_width=True, hide_index=True)
 
     st.write("")
+
+    basic_ready = bool(
+        patrol_title.strip() and station_name.strip() and station_address.strip()
+        and df is not None and len(df) and st.session_state.get("coords_df") is not None
+        and st.session_state.get("coord_future") is None
+    )
+    if basic_ready:
+        next_tab_button("다음 · ③ 순찰 세부방법", 1)
+    else:
+        st.caption("제목·출발부서·대상목록을 입력하고 좌표 검색이 끝나면 다음 버튼이 나타납니다.")
 
     # ----------------------------------------------------------------------------
 
@@ -1729,6 +1754,7 @@ with page_details:
             )
 
     st.write("")
+    next_tab_button("다음 · ④ 노선 생성", 2)
 
 
 with page_build:
@@ -1748,6 +1774,11 @@ with page_build:
         excluded_station_rows = len(df) - sum(mask_keep)
         if excluded_station_rows:
             df = df[pd.Series(mask_keep, index=df.index)].reset_index(drop=True)
+
+    if st.session_state.get("route_results"):
+        next_tab_button("다음 · ⑤ 노선 결과", 3)
+    else:
+        st.caption("노선 생성이 완료되면 결과 화면으로 이동하는 다음 버튼이 나타납니다.")
 
     # ----------------------------------------------------------------------------
     # 5 · 미리보기 · 노선 생성
