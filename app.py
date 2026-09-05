@@ -26,6 +26,8 @@ GEOCODE_URL = "https://maps.apigw.ntruss.com/map-geocode/v2/geocode"
 DIRECTIONS_URL = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
 NCP_KEY_ID = st.secrets.get("NCP_CLIENT_ID", "")
 NCP_KEY = st.secrets.get("NCP_CLIENT_SECRET", "")
+NCP_KEY_ID = st.secrets.get("NCP_CLIENT_ID", "")
+NCP_KEY = st.secrets.get("NCP_CLIENT_SECRET", "")
 APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
@@ -429,6 +431,7 @@ PASERU_CSS = """
 
 :root{
   --accent:#a33a3f; --accent-button:#b8464b; --accent-hover:#8f3035; --accent-soft:#f7e9ea;
+  --navy:#17263a; --ink:#344054; --muted:#667085;
   --navy:#17263a; --ink:#263442; --muted:#344054;
   --line:#cbd3dd; --divider:#d8dee7; --surface:#ffffff; --bg:#f7f8fa;
   --focus:#d8898d;
@@ -531,10 +534,13 @@ div[data-testid="stButtonGroup"]{ gap: 8px !important; }
 
 /* ---- 버튼 ---- */
 div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
+div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
   background-color:var(--accent-button) !important;
   color:#fff !important; border:none !important; border-radius:10px !important;
   font-weight:700 !important; padding:0.65em 1.1em !important;
   box-shadow:0 5px 14px -8px rgba(143,48,53,.48);
+}
+div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
 }
 div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
 /* 전역 글자색 규칙보다 우선해 주요 빨간 버튼의 글자를 항상 흰색으로 표시 */
@@ -572,10 +578,12 @@ div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] *{
   color:var(--ink) !important; font-weight:600 !important;
 }
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{
   color:var(--muted) !important;
   -webkit-text-fill-color:var(--muted) !important;
   opacity:1 !important;
   font-weight:500 !important;
+}
 }
 /* 안내문·업로더 보조문이 연한 회색으로 흐려지지 않도록 대비 확보 */
 .stApp small, .stApp small *,
@@ -976,6 +984,30 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+if not has_keys():
+
+st.markdown(
+    """
+    <div style="margin:-0.55rem 0 1.25rem;padding:1.05rem 1.15rem;border:1px solid #cbd3dd;
+                border-radius:12px;background:#ffffff;box-shadow:0 2px 10px rgba(23,38,58,.05);">
+      <div style="color:#17263a;font-size:1.05rem;font-weight:750;margin-bottom:0.35rem;">
+        주소 목록을 실제 도로 기준의 순찰계획으로 바꾸는 소방업무 지원 앱입니다
+      </div>
+      <div style="color:#344054;font-size:0.94rem;line-height:1.65;">
+        여러 대상의 방문 순서를 일일이 지도에서 찾는 대신, 업무 목적과 순찰 조건을 반영해
+        출발지부터 복귀지까지의 노선을 자동으로 편성합니다.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:0.55rem;
+                  margin-top:0.8rem;color:#263442;font-size:0.88rem;font-weight:600;">
+        <div>🛣️ 실제 도로거리·시간 계산</div>
+        <div>📍 업무별 방문 순서 편성</div>
+        <div>📱 지도·카카오맵·QR 전달</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 # 공개 주소를 통한 무단 API 사용을 막기 위한 앱 입구 인증
 if not st.session_state.get("paseru_authenticated", False):
     with st.container(border=True):
@@ -1004,6 +1036,33 @@ if not st.session_state.get("paseru_authenticated", False):
                 st.error("비밀번호가 올바르지 않습니다.")
     st.stop()
 
+with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설정하는 이유", expanded=True):
+    st.markdown(
+        """
+        **파세루 오리진은 다음 순서로 사용합니다.**
+
+        1. **업무 이름과 출발·복귀 지점 입력** — 어떤 계획인지 표시하고 모든 노선의 기준점을 정합니다.
+        2. **순찰 방법 선택** — 업무마다 대상 수, 반복 방식, 완료기한과 출동 여건이 달라 알맞은 편성 규칙을 적용합니다.
+        3. **대상명과 주소 업로드** — 개인정보 없이 노선 생성에 필요한 최소 정보만 사용합니다.
+        4. **좌표 확인 후 노선 생성** — 실제 도로거리와 시간을 계산하고 지도·카카오맵·QR·엑셀 결과를 만듭니다.
+        """
+    )
+    st.markdown("**업무별로 조건이 다른 이유**")
+    guide_cols = st.columns(2)
+    with guide_cols[0]:
+        st.markdown(
+            "- **지휘관 현장방문:** 하루에 전 현장을 보는 것이 중요해 거리순으로 연결합니다.\n"
+            "- **특별경계근무:** 명절·선거·축제의 주요 대상을 하루 1~2회 반복할 수 있습니다.\n"
+            "- **계절순찰:** 하루 약 1시간씩 나누고 출동차량의 원거리 이동을 제한합니다."
+        )
+    with guide_cols[1]:
+        st.markdown(
+            "- **예방검사:** 검사기한·가능일·팀 수를 계산해 하루 권장량을 정합니다.\n"
+            "- **지리조사:** 전체 소화전을 인원과 차량에 균등 배정해 월 10회 안에 점검합니다.\n"
+            "- **API 호출 제한:** 반복 계산으로 인한 처리 지연과 지도 API 비용 증가를 막습니다."
+        )
+    st.caption("자동 생성 노선은 참고안입니다. 현장과 출동 여건을 담당자가 검토한 뒤 최종 노선을 결정하세요.")
+
 if not has_keys():
     st.error(
         "NCP(네이버클라우드플랫폼) Client ID/Secret이 설정되지 않았습니다. "
@@ -1017,6 +1076,7 @@ if not has_keys():
 with st.container(border=True):
     card_title(0, "순찰 제목 · 출발·복귀 기준점")
     patrol_title = st.text_input("순찰 제목", value="특별경계근무 순찰노선 - 성주군 일원")
+    patrol_title = st.text_input("순찰 제목", value="소방안전 순찰노선 - 성주군 일원")
     c1, c2, c3 = st.columns([1, 1.6, 1])
     with c1:
         station_name = st.text_input("출발 부서(소방서·센터) 이름", value="성주소방서")
@@ -1032,6 +1092,14 @@ st.write("")
 # 1 · 순찰 방법(노선 용도)
 # ----------------------------------------------------------------------------
 PURPOSE_OPTIONS = [
+    "① 특별경계근무용", "② 계절순찰", "③ 예방검사", "④ 지리조사(센터용)", "⑤ 지휘관 현장방문",
+]
+PURPOSE_HINT = {
+    "① 특별경계근무용": "명절·선거·축제 등 특별경계근무 — 휴무 공장과 터미널·역·공항·행사장 등 주요 대상을 하루 1~2회 반복 순찰합니다.",
+    "② 계절순찰": "봄·가을·겨울 산림인접 대상과 여름 풍수해 대상을 매일 약 1시간씩 다른 구간으로 순찰합니다.",
+    "③ 예방검사": "숙박업소 등 점검 순찰.",
+    "④ 지리조사(센터용)": "소화전 등 팀별 순회 — 팀 수·목표시간 기준으로 노선수를 자동 산출합니다.",
+    "⑤ 지휘관 현장방문": "풍수해·산불·재난지역 등 모든 현장을 하루에 실제 도로거리순으로 방문합니다.",
     "① 지휘관 현장방문", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
 ]
 PURPOSE_HINT = {
@@ -1049,6 +1117,10 @@ with st.container(border=True):
     if not purpose_label:
         purpose_label = PURPOSE_OPTIONS[0]
     st.caption(PURPOSE_HINT.get(purpose_label, ""))
+    purpose = {
+        "① 특별경계근무용": "guard", "② 계절순찰": "season", "③ 예방검사": "inspect",
+        "④ 지리조사(센터용)": "hydrant", "⑤ 지휘관 현장방문": "other",
+    }.get(purpose_label, "guard")
     purpose = {
         "① 지휘관 현장방문": "other", "② 특별경계근무용": "guard",
         "③ 계절순찰": "season", "④ 예방검사": "inspect",
@@ -2115,6 +2187,7 @@ if "route_results" in st.session_state:
     m1.metric("생성 노선 수", f"{len(route_results)}")
     m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
     m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
+    m4.metric("원거리 위임 권장" if meta.get("purpose") == "② 계절순찰" else "원거리 분리 대상",
     m4.metric("원거리 위임 권장" if meta.get("purpose") == "③ 계절순찰" else "원거리 분리 대상",
               f"{len(far_points)}")
 
@@ -2293,6 +2366,7 @@ if "route_results" in st.session_state:
         team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
         over_mark = " ⏱초과" if target_min_ref and rr["total_min"] > target_min_ref else ""
         hydrant_label = ""
+        if meta.get("purpose") == "④ 지리조사(센터용)" and rr.get("vehicle_no"):
         if meta.get("purpose") == "⑤ 지리조사(센터용)" and rr.get("vehicle_no"):
             members = ", ".join(rr.get("assigned_members") or [])
             hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
@@ -2308,6 +2382,7 @@ if "route_results" in st.session_state:
                         "순번": str(i), "지점": stop_label(leg["to"], leg.get("to_address")),
                         "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
                     }
+                    if meta.get("purpose") == "④ 지리조사(센터용)":
                     if meta.get("purpose") == "⑤ 지리조사(센터용)":
                         row["담당"] = leg.get("assigned_to", "")
                         row["조사시간(분)"] = leg.get("inspection_min", 0)
@@ -2420,6 +2495,7 @@ if "route_results" in st.session_state:
                 st_folium(m, height=350, use_container_width=True, key=f"map_{rr['route_no']}")
 
     if far_points:
+        is_season_far = meta.get("purpose") == "② 계절순찰"
         is_season_far = meta.get("purpose") == "③ 계절순찰"
         st.header("🚙 원거리 위임 권장 대상" if is_season_far else "⚠️ 장거리 별도 대상")
         far_df = pd.DataFrame(far_points)
