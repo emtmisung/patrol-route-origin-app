@@ -1097,7 +1097,13 @@ with st.container(border=True):
                              label_visibility="collapsed")
     if not purpose_label:
         purpose_label = PURPOSE_OPTIONS[0]
-    st.caption(PURPOSE_HINT.get(purpose_label, ""))
+    if hasattr(st, "popover"):
+        with st.popover("❔ 선택한 순찰방법 설명 보기"):
+            st.write(PURPOSE_HINT.get(purpose_label, ""))
+            st.caption("순찰방법을 바꾸면 해당 업무에 필요한 조건만 자동으로 표시됩니다.")
+    else:
+        with st.expander("❔ 선택한 순찰방법 설명 보기", expanded=False):
+            st.write(PURPOSE_HINT.get(purpose_label, ""))
     purpose = {
         "① 지휘관 현장방문": "other", "② 특별경계근무용": "guard",
         "③ 계절순찰": "season", "④ 예방검사": "inspect",
@@ -1522,23 +1528,24 @@ with st.container(border=True):
         long_threshold = 99999.0
         st.caption("지휘관 현장방문은 원거리 대상을 제외하지 않고 전 대상을 거리순으로 편성합니다.")
 
-    sub_label("마. API 호출 절약 (요금·시간 절감)")
-    save_calls = st.checkbox(
-        "직선거리로 후보를 먼저 좁힌 뒤, 가까운 후보만 실제 도로거리로 확인 (권장)", value=True,
-        help="끄면 매 단계마다 남은 모든 대상을 실제 도로거리로 확인합니다. "
-             "정확도는 거의 같지만 호출 횟수가 대상 수의 제곱으로 늘어납니다.",
-    )
-    if save_calls:
-        candidate_k = st.slider("실제 도로거리로 확인할 후보 수", 3, 12, 5,
-                                help="숫자가 클수록 정확하지만 호출이 늘어납니다. 5개면 대부분 충분합니다.")
-    else:
-        candidate_k = 0
+    with st.expander("⚙️ 계산 과정·API 호출 설정 보기", expanded=False):
+        st.caption("기본값 그대로 사용해도 됩니다. 비용이나 계산 정밀도를 직접 조정할 때만 변경하세요.")
+        save_calls = st.checkbox(
+            "가까운 후보만 실제 도로거리로 확인하여 호출 절약 (권장)", value=True,
+            help="직선거리는 후보를 좁히는 데만 사용하며, 최종 노선은 실제 도로거리로 계산합니다. "
+                 "끄면 남은 모든 대상을 실제 도로거리로 확인해 호출 횟수가 크게 늘어납니다.",
+        )
+        if save_calls:
+            candidate_k = st.slider("실제 도로거리로 확인할 후보 수", 3, 12, 5,
+                                    help="숫자가 클수록 비교 후보는 많아지지만 API 호출도 늘어납니다.")
+        else:
+            candidate_k = 0
 
-    max_calls = st.number_input(
-        "최대 API 호출 수 (초과하면 자동으로 중단합니다)", min_value=50, max_value=100000,
-        value=1500, step=100,
-        help="여기까지만 호출하고 멈춥니다. 중단되어도 그때까지 편성된 노선은 그대로 볼 수 있습니다.",
-    )
+        max_calls = st.number_input(
+            "최대 API 호출 수", min_value=50, max_value=100000,
+            value=1500, step=100,
+            help="설정한 횟수에 도달하면 비용 보호를 위해 추가 호출을 중단합니다.",
+        )
 
 st.write("")
 
@@ -2347,7 +2354,7 @@ if "route_results" in st.session_state:
             hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
         head = (f"노선 {rr['route_no']}" + hydrant_label + (f" · {team_name}" if team_name else "") +
                 f" — {len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분{over_mark}")
-        with st.expander(head, expanded=True):
+        with st.expander(f"🔎 상세 과정 보기 · {head}", expanded=False):
             col1, col2 = st.columns([1, 1])
 
             with col1:
