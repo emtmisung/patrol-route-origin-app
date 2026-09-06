@@ -2272,9 +2272,9 @@ with page_build:
                                else f"{min(visit_runs)}~{max(visit_runs)}회")
                 st.info(f"🔁 설정 기간 동안 같은 대상의 예상 방문 횟수: {repeat_text}")
 
-        # 결과 첫 화면: 노선 1을 즉시 체감할 수 있는 대표 결과
-        first_route = route_results[0] if route_results else None
-        if first_route:
+        # 결과 완성 안내 — 특정 노선을 대표로 크게 보여주지 않고, 생성된 노선 수만큼
+        # 아래 지도 그리드에서 전부 동일하게 보여준다(노선 2 이상이 묻히지 않도록).
+        if route_results:
             st.markdown(
                 f"""
                 <div style="margin:1rem 0 1.1rem;padding:1.25rem 1.4rem;border-radius:18px;
@@ -2284,48 +2284,13 @@ with page_build:
                     🎉 노선이 완성되었습니다!
                   </div>
                   <div style="font-size:1rem;font-weight:650;color:#29483a;">
-                    먼저 노선 1을 확인해 보세요. 방문 순서와 실제 도로 경로가 한눈에 연결됩니다.
+                    아래에서 생성된 {len(route_results)}개 노선을 지도로 모두 확인하세요.
+                    지도 아래 '상세보기'를 열면 방문순서·카카오맵·QR코드가 나옵니다.
                   </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            st.markdown(
-                f"### 🚒 노선 1 · {len(first_route['stops'])}개소 · "
-                f"{first_route['total_km']:.1f}km · 약 {first_route['total_min']:.0f}분"
-            )
-            hero_list, hero_map = st.columns([0.9, 1.35])
-            with hero_list:
-                first_rows = [
-                    {"순서": i, "방문지": leg["to"], "이동시간": f"약 {leg['min']:.0f}분"}
-                    for i, leg in enumerate(first_route["legs"], start=1)
-                ]
-                first_rows.append({"순서": "↩", "방문지": f"복귀 · {station['name']}",
-                                   "이동시간": f"약 {first_route['back_min']:.0f}분"})
-                st.dataframe(pd.DataFrame(first_rows), use_container_width=True, hide_index=True)
-                first_kakao_links = kakao_route_links(station, first_route["legs"])
-                if first_kakao_links:
-                    first_kurl = first_kakao_links[0][0]
-                    st.link_button("🚗 지금 카카오맵에서 노선 1 길안내 열기", first_kurl,
-                                   use_container_width=True, type="primary")
-                    st.caption("휴대폰에서는 카카오맵 앱으로 연결됩니다.")
-            with hero_map:
-                hero = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
-                if first_route["path"]:
-                    folium.PolyLine(first_route["path"], color="#24704a", weight=6, opacity=.9).add_to(hero)
-                for i, leg in enumerate(first_route["legs"], start=1):
-                    folium.Marker([leg["lat"], leg["lng"]], tooltip=f"{i}. {leg['to']}",
-                                  icon=folium.DivIcon(icon_size=(30,30), icon_anchor=(15,15), html=(
-                                      '<div style="background:#1f6fb2;color:white;width:27px;height:27px;'
-                                      'border-radius:50%;border:2px solid white;display:flex;align-items:center;'
-                                      f'justify-content:center;font-weight:800;box-shadow:0 2px 7px #555;">{i}</div>'
-                                  ))).add_to(hero)
-                folium.Marker([station["lat"], station["lng"]], tooltip=f"출발·복귀: {station['name']}",
-                              icon=folium.Icon(color="red", icon="home")).add_to(hero)
-                st_folium(hero, height=410, use_container_width=True, key="hero_route_1_map")
-
-            st.markdown("---")
-            st.markdown("### 📂 전체 노선과 현장 전달 자료")
 
         # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
         with st.expander("선택 사항 · 노선별 담당 조와 조원 입력", expanded=False):
@@ -2512,146 +2477,147 @@ with page_build:
             else:
                 st.success(f"⏱ 모든 노선이 목표 {target_min_ref}분 이내입니다.")
 
-        st.markdown("### 🗺️ 다른 노선 확인")
-        selected_route_no = st.selectbox(
-            "확인할 노선",
-            [rr["route_no"] for rr in route_results],
-            format_func=lambda value: f"노선 {value}",
-            label_visibility="collapsed",
+        st.markdown("### 🗺️ 노선별 지도 · 상세보기")
+        st.caption(
+            f"생성된 {len(route_results)}개 노선을 모두 지도로 보여드립니다. "
+            "각 지도 아래의 '상세보기'를 열면 방문순서·카카오맵 길안내·QR코드가 나옵니다."
         )
-        selected_route = next(rr for rr in route_results if rr["route_no"] == selected_route_no)
-        for rr in [selected_route]:
-            team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
-            over_mark = " ⏱초과" if target_min_ref and rr["total_min"] > target_min_ref else ""
-            hydrant_label = ""
-            if meta.get("purpose") == "⑤ 지리조사(센터용)" and rr.get("vehicle_no"):
-                members = ", ".join(rr.get("assigned_members") or [])
-                hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
-            season_runs = (f" · 기간 중 {rr.get('period_runs', 0)}회 예상"
-                           if meta.get("purpose") == "③ 계절순찰" and rr.get("period_runs") else "")
-            head = (f"노선 {rr['route_no']}" + hydrant_label + (f" · {team_name}" if team_name else "") +
-                    f" — {len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분"
-                    + season_runs + over_mark)
-            with st.expander(f"🔎 상세 과정 보기 · {head}", expanded=False):
-                col1, col2 = st.columns([1, 1])
 
-                with col1:
-                    rows = []
-                    for i, leg in enumerate(rr["legs"], start=1):
-                        row = {
-                            "순번": str(i), "지점": stop_label(leg["to"], leg.get("to_address")),
-                            "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
-                        }
-                        if meta.get("purpose") == "⑤ 지리조사(센터용)":
-                            row["담당"] = leg.get("assigned_to", "")
-                            row["조사시간(분)"] = leg.get("inspection_min", 0)
-                        rows.append(row)
-                    rows.append({"순번": "", "지점": f"복귀 ({station['name']})",
-                                 "구간거리(km)": round(rr["back_km"], 1),
-                                 "구간시간(분)": round(rr["back_min"])})
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-                    st.markdown("**🟨 카카오맵 — 전체 순찰코스와 QR코드**")
-                    kakao_links = kakao_route_links(station, rr["legs"])
-                    st.download_button(
-                        f"🖨 노선 {rr['route_no']} QR 인쇄용 문서",
-                        data=build_printable_qr_html(station, [rr], meta),
-                        file_name=f"{safe_title}_노선_{rr['route_no']}_QR인쇄.html",
-                        mime="text/html",
-                        key=f"route_print_{rr['route_no']}",
-                        use_container_width=True,
+        ROUTE_CARDS_PER_ROW = 2
+        for row_start in range(0, len(route_results), ROUTE_CARDS_PER_ROW):
+            row_routes = route_results[row_start:row_start + ROUTE_CARDS_PER_ROW]
+            route_cols = st.columns(len(row_routes))
+            for route_col, rr in zip(route_cols, row_routes):
+                with route_col:
+                    team_name = st.session_state.get(f"team_name_{rr['route_no']}", "")
+                    over_mark = " ⏱초과" if target_min_ref and rr["total_min"] > target_min_ref else ""
+                    hydrant_label = ""
+                    if meta.get("purpose") == "⑤ 지리조사(센터용)" and rr.get("vehicle_no"):
+                        members = ", ".join(rr.get("assigned_members") or [])
+                        hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
+                    season_runs = (f" · 기간 중 {rr.get('period_runs', 0)}회 예상"
+                                   if meta.get("purpose") == "③ 계절순찰" and rr.get("period_runs") else "")
+                    head = (f"노선 {rr['route_no']}" + hydrant_label + (f" · {team_name}" if team_name else ""))
+                    st.markdown(f"#### 🚒 {head}{over_mark}")
+                    st.caption(
+                        f"{len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분"
+                        + season_runs
                     )
-                    for li, (kurl, origin, destinations) in enumerate(kakao_links, start=1):
-                        suffix = "" if len(kakao_links) == 1 else f" ({li}/{len(kakao_links)}구간)"
-                        seq = " → ".join([origin["name"]] + [p["name"] for p in destinations])
-                        qr_png = make_qr_png(kurl)
 
-                        guide_col, qr_col = st.columns([1.35, 1])
-                        with guide_col:
-                            st.link_button(
-                                f"🚗 카카오맵 전체 코스 길안내{suffix}",
-                                kurl,
-                                use_container_width=True,
-                            )
-                        with qr_col:
-                            qr_box = (st.popover(f"📱 QR코드 보기{suffix}", use_container_width=True)
-                                      if hasattr(st, "popover")
-                                      else st.expander(f"📱 QR코드 보기{suffix}"))
-                            with qr_box:
-                                st.image(qr_png, caption="휴대폰 카메라로 스캔하세요.", width=260)
-                                st.download_button(
-                                    "QR코드 이미지 저장",
-                                    data=qr_png,
-                                    file_name=f"노선_{rr['route_no']}_카카오맵_QR_{li}.png",
-                                    mime="image/png",
-                                    key=f"kakao_qr_{rr['route_no']}_{li}",
-                                    use_container_width=True,
-                                )
-                        st.caption(f"경로: {seq}")
+                    with st.container(border=True):
+                        m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
+                        if rr["path"]:
+                            folium.PolyLine(rr["path"], color="#a33a3f", weight=4, opacity=0.85).add_to(m)
 
-                    if len(kakao_links) > 1:
-                        st.caption(
-                            f"※ 카카오맵은 경유지를 한 구간에 최대 {KAKAO_MAX_VIA}개까지 지원하므로 "
-                            "긴 노선은 이어지는 구간으로 나눴습니다. 현장에서 순서대로 열어 주세요."
-                        )
-                    else:
-                        st.caption(
-                            "※ 소방서를 출발지와 최종 목적지로, 순찰 대상을 경유지 순서대로 "
-                            "입력한 카카오맵 링크입니다. QR을 스캔하면 같은 코스가 열립니다."
-                        )
-
-                    with st.expander("지점별 개별 길안내(카카오맵) — 예비용", expanded=False):
+                        # 방문 순서를 지도 위에 숫자로 표시 (기본 핀 대신 번호 원)
                         for i, leg in enumerate(rr["legs"], start=1):
-                            st.markdown(
-                                f"- [{i}. {leg['to']} 길안내]({kakao_url(leg['to'], leg['lat'], leg['lng'])})"
-                            )
-                        st.markdown(
-                            f"- [🚒 {station['name']} 귀소 길안내]"
-                            f"({kakao_url(station['name'], station['lat'], station['lng'])})"
-                        )
-                        st.caption(
-                            "전체 코스가 특정 휴대폰에서 열리지 않을 때 사용하세요. 각 버튼은 "
-                            "현재 위치에서 선택한 다음 지점까지 안내합니다."
-                        )
+                            folium.Marker(
+                                [leg["lat"], leg["lng"]],
+                                tooltip=f"{i}. {leg['to']}",
+                                icon=folium.DivIcon(
+                                    icon_size=(30, 30), icon_anchor=(15, 15),
+                                    html=(
+                                        '<div style="background:#1f6fb2;color:#ffffff;'
+                                        'width:26px;height:26px;border-radius:50%;'
+                                        'border:2px solid #ffffff;box-shadow:0 1px 5px rgba(0,0,0,.45);'
+                                        'display:flex;align-items:center;justify-content:center;'
+                                        'font-family:sans-serif;font-weight:700;font-size:13px;'
+                                        f'line-height:1;">{i}</div>'
+                                    ),
+                                ),
+                            ).add_to(m)
 
-                with col2:
-                    m = folium.Map(location=[station["lat"], station["lng"]], zoom_start=12)
-                    if rr["path"]:
-                        folium.PolyLine(rr["path"], color="#a33a3f", weight=4, opacity=0.85).add_to(m)
-
-                    # 방문 순서를 지도 위에 숫자로 표시 (기본 핀 대신 번호 원)
-                    for i, leg in enumerate(rr["legs"], start=1):
+                        # 출발·복귀 지점은 눈에 띄게 빨간 '출발' 표식으로
                         folium.Marker(
-                            [leg["lat"], leg["lng"]],
-                            tooltip=f"{i}. {leg['to']}",
+                            [station["lat"], station["lng"]], tooltip=f"출발·복귀: {station['name']}",
                             icon=folium.DivIcon(
-                                icon_size=(30, 30), icon_anchor=(15, 15),
+                                icon_size=(56, 26), icon_anchor=(28, 13),
                                 html=(
-                                    '<div style="background:#1f6fb2;color:#ffffff;'
-                                    'width:26px;height:26px;border-radius:50%;'
-                                    'border:2px solid #ffffff;box-shadow:0 1px 5px rgba(0,0,0,.45);'
-                                    'display:flex;align-items:center;justify-content:center;'
-                                    'font-family:sans-serif;font-weight:700;font-size:13px;'
-                                    f'line-height:1;">{i}</div>'
+                                    '<div style="background:#a33a3f;color:#ffffff;'
+                                    'padding:3px 8px;border-radius:13px;border:2px solid #ffffff;'
+                                    'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
+                                    'font-family:sans-serif;font-weight:700;font-size:12px;'
+                                    'line-height:1.2;white-space:nowrap;">🚒 출발</div>'
                                 ),
                             ),
                         ).add_to(m)
+                        st_folium(m, height=260, use_container_width=True, key=f"map_{rr['route_no']}")
 
-                    # 출발·복귀 지점은 눈에 띄게 빨간 '출발' 표식으로
-                    folium.Marker(
-                        [station["lat"], station["lng"]], tooltip=f"출발·복귀: {station['name']}",
-                        icon=folium.DivIcon(
-                            icon_size=(56, 26), icon_anchor=(28, 13),
-                            html=(
-                                '<div style="background:#a33a3f;color:#ffffff;'
-                                'padding:3px 8px;border-radius:13px;border:2px solid #ffffff;'
-                                'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
-                                'font-family:sans-serif;font-weight:700;font-size:12px;'
-                                'line-height:1.2;white-space:nowrap;">🚒 출발</div>'
-                            ),
-                        ),
-                    ).add_to(m)
-                    st_folium(m, height=350, use_container_width=True, key=f"map_{rr['route_no']}")
+                        with st.expander("🔎 상세보기 · 방문순서 · 카카오맵 · QR코드", expanded=False):
+                            rows = []
+                            for i, leg in enumerate(rr["legs"], start=1):
+                                row = {
+                                    "순번": str(i), "지점": stop_label(leg["to"], leg.get("to_address")),
+                                    "구간거리(km)": round(leg["km"], 1), "구간시간(분)": round(leg["min"]),
+                                }
+                                if meta.get("purpose") == "⑤ 지리조사(센터용)":
+                                    row["담당"] = leg.get("assigned_to", "")
+                                    row["조사시간(분)"] = leg.get("inspection_min", 0)
+                                rows.append(row)
+                            rows.append({"순번": "", "지점": f"복귀 ({station['name']})",
+                                         "구간거리(km)": round(rr["back_km"], 1),
+                                         "구간시간(분)": round(rr["back_min"])})
+                            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                            st.markdown("**🟨 카카오맵 — 전체 순찰코스와 QR코드**")
+                            kakao_links = kakao_route_links(station, rr["legs"])
+                            st.download_button(
+                                f"🖨 노선 {rr['route_no']} QR 인쇄용 문서",
+                                data=build_printable_qr_html(station, [rr], meta),
+                                file_name=f"{safe_title}_노선_{rr['route_no']}_QR인쇄.html",
+                                mime="text/html",
+                                key=f"route_print_{rr['route_no']}",
+                                use_container_width=True,
+                            )
+                            for li, (kurl, origin, destinations) in enumerate(kakao_links, start=1):
+                                suffix = "" if len(kakao_links) == 1 else f" ({li}/{len(kakao_links)}구간)"
+                                seq = " → ".join([origin["name"]] + [p["name"] for p in destinations])
+                                qr_png = make_qr_png(kurl)
+
+                                st.link_button(
+                                    f"🚗 카카오맵 전체 코스 길안내{suffix}",
+                                    kurl,
+                                    use_container_width=True,
+                                )
+                                qr_box = (st.popover(f"📱 QR코드 보기{suffix}", use_container_width=True)
+                                          if hasattr(st, "popover")
+                                          else st.expander(f"📱 QR코드 보기{suffix}"))
+                                with qr_box:
+                                    st.image(qr_png, caption="휴대폰 카메라로 스캔하세요.", width=220)
+                                    st.download_button(
+                                        "QR코드 이미지 저장",
+                                        data=qr_png,
+                                        file_name=f"노선_{rr['route_no']}_카카오맵_QR_{li}.png",
+                                        mime="image/png",
+                                        key=f"kakao_qr_{rr['route_no']}_{li}",
+                                        use_container_width=True,
+                                    )
+                                st.caption(f"경로: {seq}")
+
+                            if len(kakao_links) > 1:
+                                st.caption(
+                                    f"※ 카카오맵은 경유지를 한 구간에 최대 {KAKAO_MAX_VIA}개까지 지원하므로 "
+                                    "긴 노선은 이어지는 구간으로 나눴습니다. 현장에서 순서대로 열어 주세요."
+                                )
+                            else:
+                                st.caption(
+                                    "※ 소방서를 출발지와 최종 목적지로, 순찰 대상을 경유지 순서대로 "
+                                    "입력한 카카오맵 링크입니다. QR을 스캔하면 같은 코스가 열립니다."
+                                )
+
+                            with st.expander("지점별 개별 길안내(카카오맵) — 예비용", expanded=False):
+                                for i, leg in enumerate(rr["legs"], start=1):
+                                    st.markdown(
+                                        f"- [{i}. {leg['to']} 길안내]({kakao_url(leg['to'], leg['lat'], leg['lng'])})"
+                                    )
+                                st.markdown(
+                                    f"- [🚒 {station['name']} 귀소 길안내]"
+                                    f"({kakao_url(station['name'], station['lat'], station['lng'])})"
+                                )
+                                st.caption(
+                                    "전체 코스가 특정 휴대폰에서 열리지 않을 때 사용하세요. 각 버튼은 "
+                                    "현재 위치에서 선택한 다음 지점까지 안내합니다."
+                                )
 
         if far_points:
             is_season_far = meta.get("purpose") == "③ 계절순찰"
