@@ -538,10 +538,19 @@ div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
   box-shadow:0 5px 14px -8px rgba(143,48,53,.48);
 }
 div.stButton > button:hover, .stDownloadButton > button:hover{ background-color: var(--accent-hover) !important; }
-/* 로그인 시작 버튼은 마우스를 올렸을 때 밝은 초록색으로 명확하게 반응 */
-div.stFormSubmitter > button:hover,
-div.stFormSubmitter > button:hover *{
+/* 폼 제출 전에도 입력 여부에 따라 즉시 반응하며 hover에서도 색을 유지한다. */
+[data-testid="stForm"]:has(input[placeholder="비밀번호를 입력하세요"]) button[kind],
+[data-testid="stForm"]:has(input[placeholder="비밀번호를 입력하세요"]) button[kind]:is(:hover, :focus, :active){
+  background:#b8464b !important;
+  border-color:#b8464b !important;
+}
+[data-testid="stForm"]:has(input[placeholder="비밀번호를 입력하세요"]:not(:placeholder-shown)) button[kind],
+[data-testid="stForm"]:has(input[placeholder="비밀번호를 입력하세요"]:not(:placeholder-shown)) button[kind]:is(:hover, :focus, :active){
   background:#238553 !important;
+  border-color:#238553 !important;
+}
+[data-testid="stForm"]:has(input[placeholder="비밀번호를 입력하세요"]) button[kind],
+[data-testid="stForm"]:has(input[placeholder="비밀번호를 입력하세요"]) button[kind] *{
   color:#ffffff !important;
   -webkit-text-fill-color:#ffffff !important;
 }
