@@ -33,6 +33,7 @@ APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
+API_CALL_LIMIT = 500      # 좌표검색과 노선계산을 합친 작업당 NCP 호출 상한
 
 SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
 
@@ -129,7 +130,7 @@ def search_departure_department(query: str):
             return None, None, None, None, message
         addresses = r.json().get("addresses") or []
         if not addresses:
-            return None, None, None, None, "출발부서를 찾지 못했습니다. 정확한 부서명을 확인해 주세요."
+            return None, None, None, None, "출발부서를 찾지 못했습니다. 정확한 부서명 또는 도로명주소를 입력해 주세요."
         item = addresses[0]
         address = item.get("roadAddress") or item.get("jibunAddress") or query
         return query, address, float(item["y"]), float(item["x"]), "ok"
@@ -179,10 +180,13 @@ def address_variants(address: str, name: str = ""):
     return cands
 
 
-def geocode_with_fallback(address: str, name: str = "", on_call=None):
+def geocode_with_fallback(address: str, name: str = "", on_call=None, should_stop=None):
     """여러 주소 형태로 순차 시도. 반환: (lat, lng, 성공에 쓴 주소, 방법, 시도내역)"""
     tried = []
     for query, why in address_variants(address, name):
+        if should_stop and should_stop():
+            tried.append("API 호출 한도 도달")
+            break
         lat, lng, status = geocode_once(query)
         if on_call:
             on_call()
@@ -1214,6 +1218,12 @@ if not st.session_state.get("paseru_authenticated", False):
             '</div>',
             unsafe_allow_html=True,
         )
+        st.markdown(
+            '<div style="margin-top:0.55rem;text-align:center;color:#667085;font-size:0.9rem;'
+            'letter-spacing:-0.01em;">파세루 오리진 · 기획 및 제작 <b style="color:#17263a;">임미성</b>'
+            '<br><span style="color:#238553;font-weight:650;">현장의 경험을 더 안전한 길로 연결합니다.</span></div>',
+            unsafe_allow_html=True,
+        )
 
         if login_submitted:
             if not APP_PASSWORD:
@@ -1230,7 +1240,7 @@ with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설
         """
         **파세루 오리진은 다음 순서로 사용합니다.**
 
-        1. **표지·로그인** — 앱 안내와 개인정보 주의사항을 확인하고 비밀번호로 접속합니다.
+        **접속** — 앱 안내와 개인정보 주의사항을 확인하고 비밀번호로 접속합니다.
         1. **기본정보·대상목록** — 순찰 제목·출발 부서를 입력하고 대상명과 주소만 업로드해 좌표를 확인합니다.
         2. **순찰 세부방법** — 순찰 용도·기간·차량·반복 방식과 출동 여건을 설정합니다.
         3. **노선 생성·결과** — 확정된 좌표와 설정 결과를 바탕으로 실제 도로 기준 노선을 계산하고,
@@ -1460,6 +1470,12 @@ with page_basic:
 
     def search_coordinates_in_background(records, name_key, address_key, lat_key=None, lng_key=None):
         rows = []
+        api_calls = 0
+
+        def count_call():
+            nonlocal api_calls
+            api_calls += 1
+
         for record in records:
             nm, ad = str(record.get(name_key, "")), str(record.get(address_key, ""))
             file_lat = file_lng = None
@@ -1474,7 +1490,10 @@ with page_basic:
                 rows.append({"대상명": nm, "주소": ad, "위도": file_lat, "경도": file_lng,
                              "상태": "파일 좌표", "비고": "파일에 있던 좌표를 사용"})
                 continue
-            lat, lng, used_q, used_why, tried = geocode_with_fallback(ad, nm)
+            lat, lng, used_q, used_why, tried = geocode_with_fallback(
+                ad, nm, on_call=count_call,
+                should_stop=lambda: api_calls >= API_CALL_LIMIT,
+            )
             if lat is None:
                 rows.append({"대상명": nm, "주소": ad, "위도": None, "경도": None,
                              "상태": "❌ 실패", "비고": "시도: " + " / ".join(tried)})
@@ -1482,7 +1501,9 @@ with page_basic:
                 rows.append({"대상명": nm, "주소": ad, "위도": lat, "경도": lng,
                              "상태": "✅ 확인" if used_why == "원본 주소" else "🔧 주소 보정 후 확인",
                              "비고": "" if used_why == "원본 주소" else f"{used_why} → {used_q}"})
-        return pd.DataFrame(rows)
+        result = pd.DataFrame(rows)
+        result.attrs["api_calls_used"] = api_calls
+        return result
 
 
     if df is not None and len(df):
@@ -1501,6 +1522,7 @@ with page_basic:
             st.session_state["coord_signature"] = coord_signature
             st.session_state.pop("coords_df", None)
             st.session_state.pop("coord_future", None)
+            st.session_state.pop("coord_api_calls", None)
 
         with st.container(border=True):
             st.markdown("### 🔎 대상 좌표 우선 확인")
@@ -1522,7 +1544,9 @@ with page_basic:
                     running = st.session_state.get("coord_future")
                     if running is not None and running.done():
                         try:
-                            st.session_state["coords_df"] = running.result()
+                            coord_result = running.result()
+                            st.session_state["coords_df"] = coord_result
+                            st.session_state["coord_api_calls"] = int(coord_result.attrs.get("api_calls_used", 0))
                             st.session_state.pop("coord_future", None)
                             st.rerun()
                         except Exception as exc:
@@ -1533,7 +1557,9 @@ with page_basic:
                 poll_coordinate_search()
             elif coord_future is not None:
                 try:
-                    st.session_state["coords_df"] = coord_future.result()
+                    coord_result = coord_future.result()
+                    st.session_state["coords_df"] = coord_result
+                    st.session_state["coord_api_calls"] = int(coord_result.attrs.get("api_calls_used", 0))
                     st.session_state.pop("coord_future", None)
                     st.rerun()
                 except Exception as exc:
@@ -2047,10 +2073,12 @@ with page_details:
             else:
                 candidate_k = 0
 
-            max_calls = st.number_input(
-                "최대 API 호출 수", min_value=50, max_value=100000,
-                value=500, step=100,
-                help="설정한 횟수에 도달하면 비용 보호를 위해 추가 호출을 중단합니다.",
+            coord_api_calls = int(st.session_state.get("coord_api_calls", 0))
+            max_calls = max(0, API_CALL_LIMIT - coord_api_calls)
+            st.metric("노선 계산에 남은 API 호출", f"{max_calls:,}회")
+            st.caption(
+                f"작업당 총 {API_CALL_LIMIT:,}회로 자동 제한됩니다. "
+                f"좌표검색에서 {coord_api_calls:,}회를 사용했습니다."
             )
 
     st.write("")
@@ -2152,7 +2180,7 @@ with page_build:
                     '''<div style="margin-top:0.75rem;padding:0.9rem 1rem;
                         border:1px solid #48a774;border-left:6px solid #238553;border-radius:10px;
                         background:#e5f6ed;color:#155f3b;font-weight:750;line-height:1.55;">
-                        ✅ 확정된 좌표는 백그라운드에서 자동 저장되며 노선 생성에 바로 반영됩니다.<br>
+                        ✅ 확정된 좌표는 현재 작업 동안 백그라운드에 자동 저장되어 노선 생성에 바로 반영됩니다.<br>
                         <span style="font-weight:550;color:#28704b;">별도의 저장 버튼을 누르지 않아도 됩니다.</span>
                     </div>''',
                     unsafe_allow_html=True,
@@ -2220,8 +2248,6 @@ with page_build:
             st.error("좌표가 있는 대상이 없습니다. 좌표 확인 및 수정에서 좌표를 확정해 주세요.")
             st.stop()
 
-        def bump(total_hint=len(points)):
-            call_counter["n"] += 1
         # 3) 용도별 원거리 판정
         if purpose == "hydrant":
             normal_points = allocate_hydrants_to_members(points, station, hydrant_members)
@@ -2311,7 +2337,12 @@ with page_build:
 
         if unassigned:
             for p in unassigned:
-                km, _ = real_leg(station, p)
+                if over_limit():
+                    km = haversine_km(
+                        (station["lat"], station["lng"]), (p["lat"], p["lng"])
+                    ) * ROAD_FACTOR
+                else:
+                    km, _ = real_leg(station, p, on_call=bump_build)
                 far_points.append({**p, "도로거리_km": round(km, 1)})
 
         # 용도별 부가 정보
