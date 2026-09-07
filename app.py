@@ -712,6 +712,8 @@ div[data-testid="stAlert"]{
   display:block; margin-bottom:3px; font-size:16px; font-weight:800;
   color:#9a4700 !important;
 }
+/* 예방검사는 일정 카드에서 노선 조건까지 자동 결정하므로 중복 상세설정은 숨긴다. */
+.st-key-inspect_route_settings_hidden{ display:none !important; }
 .paseru-sub{ color:#22324a !important; }
 
 /* 완료된 핵심 작업은 기존 실행 버튼 자리에 초록색 상태 버튼처럼 표시 */
@@ -1809,7 +1811,7 @@ with page_details:
 
     with st.container(border=True):
         if purpose == "inspect":
-            card_title(2, "예방검사 일정")
+            card_title(2, "예방검사 일정 · 노선 조건")
             st.caption("대상 파일에는 대상명과 주소만 준비하면 됩니다. 공통 검사 조건은 여기에서 한 번만 설정합니다.")
 
             ic1, ic2 = st.columns(2)
@@ -1873,7 +1875,12 @@ with page_details:
                 f"실제 검사 가능일 {len(inspect_dates)}일 · 전체 가용 팀 일수 "
                 f"{len(inspect_dates) * int(inspect_teams)}팀 일"
             )
-            vehicle = st.selectbox("검사 차량", ["소방차", "구급차", "행정차", "개인차"], index=2)
+            vehicle = ""
+            st.info(
+                f"전체 대상을 제외 없이 포함하여 {int(inspect_teams)}개 팀에 배정하고, "
+                f"팀당 하루 {inspect_daily_hours:g}시간과 대상당 평균 {int(inspect_minutes)}분을 기준으로 "
+                "일정과 노선을 자동 편성합니다."
+            )
         elif purpose == "season":
             card_title(2, "계절순찰 일정")
             dc1, dc2 = st.columns(2)
@@ -2006,7 +2013,9 @@ with page_details:
     # ----------------------------------------------------------------------------
     # 4 · 노선 조건 설정
     # ----------------------------------------------------------------------------
-    with st.expander("💡 ④ 상세 노선 조건 보기", expanded=False):
+    route_settings_key = ("inspect_route_settings_hidden" if purpose == "inspect"
+                          else "route_settings_wrapper")
+    with st.container(key=route_settings_key), st.expander("💡 ④ 상세 노선 조건 보기", expanded=False):
         card_title(2, "노선 조건 설정")
 
         if purpose == "season":
@@ -2055,6 +2064,16 @@ with page_details:
                 f"출발부서 기준 편도 {int(commander_oneway_limit)}분 이내 대상을 우선 배정하고, "
                 f"각 방문지의 현장 대응시간 {int(commander_stop_min)}분을 포함해 구역별 총시간을 계산합니다."
             )
+        elif purpose == "inspect":
+            mode = "target_time"
+            target_min = int(float(inspect_daily_hours) * 60)
+            target_min_low = None
+            target_min_high = target_min
+            seg_max_km = seg_max_min = None
+            max_per_route = 100
+            max_routes_cap = max(1, len(inspect_dates) * int(inspect_teams))
+            basis_label = "소요시간 기준"
+            basis = "time"
         else:
             sub_label("가. 기준 방식")
             mode_label = st.pills("기준 방식",
@@ -2102,7 +2121,7 @@ with page_details:
                 target_min_high = target_min + allow_range
                 seg_max_km = seg_max_min = None
 
-        if purpose not in ("hydrant", "season", "other"):
+        if purpose not in ("hydrant", "season", "other", "inspect"):
             sub_label("다. 노선 생성 기준")
             basis_label = st.pills("노선 생성 기준", ["거리 기준", "소요시간 기준"],
                                    default="거리 기준", label_visibility="collapsed")
@@ -2113,6 +2132,8 @@ with page_details:
 
             sub_label("라. 장거리 분리 기준")
             long_threshold = st.number_input("소방서 실제 도로거리(km) 초과 시 별도 표시", min_value=1.0, value=15.0)
+        elif purpose == "inspect":
+            long_threshold = 99999.0
         elif purpose == "hydrant":
             long_threshold = 99999.0
             st.caption("월간 전수조사이므로 장거리 소화전도 분리하지 않고 반드시 차량·팀원에게 배정합니다.")
@@ -2318,6 +2339,10 @@ with page_build:
         if purpose == "hydrant":
             normal_points = allocate_hydrants_to_members(points, station, hydrant_members)
             far_points = []
+        elif purpose == "inspect":
+            # 예방검사는 거리에 관계없이 업로드한 모든 대상을 반드시 포함한다.
+            normal_points = points
+            far_points = []
         elif purpose == "other":
             long_progress = st.progress(0.0, text="출발부서 기준 편도시간 확인 중...")
 
@@ -2401,7 +2426,8 @@ with page_build:
                 seg_max_km, seg_max_min, target_min_high,
                 max_routes_cap or None, basis=basis, on_call=bump_build,
                 candidate_k=candidate_k, should_stop=over_limit,
-                service_min_per_stop=(int(season_stop_min) if purpose == "season" else 0),
+                service_min_per_stop=(int(season_stop_min) if purpose == "season" else
+                                      int(inspect_minutes) if purpose == "inspect" else 0),
             )
         build_progress.empty()
 
@@ -2453,8 +2479,9 @@ with page_build:
             team_info = f" · 매일 다른 코스로 순환({period_days}일간 {len(routes)}개 노선 배정)"
 
         far_word = "편도 기준 초과" if purpose in ("season", "other") else "장거리 별도"
+        far_summary = "" if purpose == "inspect" else f" ({far_word} {len(far_points)}개소)"
         st.success(f"[{purpose_label}] 총 {len(routes)}개 노선, {sum(len(r) for r in routes)}개소 배정 완료 "
-                   f"({far_word} {len(far_points)}개소){team_info}")
+                   f"{far_summary}{team_info}")
         # 5) 확정 노선의 구간별 실도로거리·경로좌표
         route_results = []
         total_calls = sum(len(r) + 1 for r in routes)
@@ -2475,6 +2502,8 @@ with page_build:
                 service_min = (int(hydrant_inspection_min) if purpose == "hydrant" else
                                int(season_stop_min) if purpose == "season" else
                                int(commander_stop_min) if purpose == "other" else 0)
+                if purpose == "inspect":
+                    service_min = int(inspect_minutes)
                 legs.append({"from": cur["name"], "to": p["name"], "to_address": p.get("address", ""),
                              "km": km, "min": mins, "inspection_min": service_min,
                              "assigned_to": p.get("assigned_to", ""),
@@ -2598,13 +2627,16 @@ with page_build:
                 "본 계산만으로 지휘·대응을 결정하지 말고 현장지휘관의 판단과 공식 지휘체계를 우선하십시오."
             )
 
-        m1, m2, m3, m4, m5 = st.columns(5)
+        metric_columns = st.columns(4 if meta.get("purpose") == "④ 예방검사" else 5)
+        m1, m2, m3, m4 = metric_columns[:4]
         m1.metric("생성 노선 수", f"{len(route_results)}")
         m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
         m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
         m4.metric("노선 평균시간", f"{sum(r['total_min'] for r in route_results) / max(len(route_results), 1):.0f}분")
-        m5.metric("편도 기준 초과" if meta.get("purpose") in ("① 지휘관 현장방문", "③ 계절순찰") else "원거리 분리 대상",
-                  f"{len(far_points)}")
+        if meta.get("purpose") != "④ 예방검사":
+            m5 = metric_columns[4]
+            m5.metric("편도 기준 초과" if meta.get("purpose") in ("① 지휘관 현장방문", "③ 계절순찰") else "원거리 분리 대상",
+                      f"{len(far_points)}")
         if meta.get("purpose") == "③ 계절순찰":
             visit_runs = [r.get("period_runs", 0) for r in route_results if r.get("period_runs")]
             if visit_runs:
