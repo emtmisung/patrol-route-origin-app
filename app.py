@@ -77,7 +77,7 @@ def geocode_address(address: str):
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
 def search_departure_department(query: str):
-    """출발부서명 또는 주소를 검색해 표시용 주소와 좌표를 반환한다."""
+    """출발부서 주소를 검색해 표준 주소와 좌표를 반환한다."""
     query = (query or "").strip()
     if not query:
         return None, None, None, "검색어를 입력하세요."
@@ -86,10 +86,18 @@ def search_departure_department(query: str):
             GEOCODE_URL, params={"query": query}, headers=ncp_headers(), timeout=10
         )
         if r.status_code != 200:
-            return None, None, None, f"검색 오류(HTTP {r.status_code})"
+            detail = ""
+            try:
+                detail = (r.json().get("error") or {}).get("message", "")
+            except Exception:
+                pass
+            message = f"주소검색 연결 오류(HTTP {r.status_code})"
+            if detail:
+                message += f": {detail}"
+            return None, None, None, message
         addresses = r.json().get("addresses") or []
         if not addresses:
-            return None, None, None, "검색 결과가 없습니다. 부서의 도로명주소를 입력해 보세요."
+            return None, None, None, "검색 결과가 없습니다. 건물명이 아닌 도로명주소를 입력해 주세요."
         item = addresses[0]
         address = item.get("roadAddress") or item.get("jibunAddress") or query
         return address, float(item["y"]), float(item["x"]), "ok"
@@ -1209,10 +1217,10 @@ with page_basic:
         )
 
         station_query = st.text_input(
-            "출발부서 검색",
-            value=st.session_state.get("station_query", "성주소방서"),
-            placeholder="예: 성주119안전센터 또는 도로명주소",
-            help="부서명으로 검색되지 않으면 출발부서의 도로명주소를 입력하세요.",
+            "출발부서 주소검색",
+            value=st.session_state.get("station_query", "경상북도 성주군 성주읍 주산로 193"),
+            placeholder="예: 경상북도 성주군 성주읍 주산로 193",
+            help="출발부서의 도로명주소 또는 지번주소를 입력하세요.",
         )
         if station_query != st.session_state.get("station_query"):
             st.session_state["station_query"] = station_query
@@ -1221,20 +1229,20 @@ with page_basic:
         search_col, guide_col = st.columns([1, 2])
         with search_col:
             search_station = st.button(
-                "🔎 출발부서 검색", key="search_departure_department_btn",
+                "🔎 주소검색", key="search_departure_department_btn",
                 type="primary", use_container_width=True, disabled=not has_keys(),
             )
         with guide_col:
             if not has_keys():
                 st.caption("NCP 지도 API 키를 설정하면 출발부서 검색을 사용할 수 있습니다.")
             else:
-                st.caption("검색하면 출발 주소와 좌표가 자동으로 입력됩니다.")
+                st.caption("도로명주소를 입력하고 주소검색을 누르면 위도·경도가 자동 입력됩니다.")
 
         if search_station:
             found_address, found_lat, found_lng, search_status = search_departure_department(station_query)
             if search_status == "ok":
                 st.session_state["station_search_result"] = {
-                    "name": station_query.strip(), "address": found_address,
+                    "name": fire_station_name.strip(), "address": found_address,
                     "lat": found_lat, "lng": found_lng,
                 }
             else:
@@ -1243,11 +1251,11 @@ with page_basic:
 
         station_result = st.session_state.get("station_search_result")
         if station_result:
-            station_name = station_result["name"]
+            station_name = fire_station_name.strip()
             station_address = station_result["address"]
             station_lat = station_result["lat"]
             station_lng = station_result["lng"]
-            st.success(f"✅ 출발부서 확인: {station_name}")
+            st.success(f"✅ 출발부서 주소와 좌표가 연결되었습니다: {station_name}")
             result_c1, result_c2, result_c3 = st.columns([2.2, 1, 1])
             result_c1.text_input("출발부서 주소", value=station_address, disabled=True)
             result_c2.text_input("위도", value=f"{station_lat:.7f}", disabled=True)
