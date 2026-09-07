@@ -25,6 +25,7 @@ st.set_page_config(page_title="파세루 오리진 (FireSafe Route Origin)", pag
 
 GEOCODE_URL = "https://maps.apigw.ntruss.com/map-geocode/v2/geocode"
 DIRECTIONS_URL = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
+KAKAO_PLACE_SEARCH_URL = "https://search.map.kakao.com/mapsearch/map.daum"
 NCP_KEY_ID = st.secrets.get("NCP_CLIENT_ID", "")
 NCP_KEY = st.secrets.get("NCP_CLIENT_SECRET", "")
 APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
@@ -77,10 +78,40 @@ def geocode_address(address: str):
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
 def search_departure_department(query: str):
-    """출발부서 주소를 검색해 표준 주소와 좌표를 반환한다."""
+    """출발부서명을 장소검색하고, 실패하면 주소검색으로 다시 확인한다."""
     query = (query or "").strip()
     if not query:
-        return None, None, None, "검색어를 입력하세요."
+        return None, None, None, None, "출발부서 이름을 입력하세요."
+
+    # 1) 카카오 장소검색: '선남119안전센터'처럼 기관명으로 주소·좌표 확인
+    try:
+        place_response = requests.get(
+            KAKAO_PLACE_SEARCH_URL,
+            params={"q": query, "msFlag": "A", "sort": "0"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; Faseru-Origin/1.0)",
+                "Referer": "https://map.kakao.com/",
+                "Accept": "application/json, text/plain, */*",
+            },
+            timeout=10,
+        )
+        if place_response.status_code == 200:
+            places = place_response.json().get("place") or []
+            if places:
+                normalized = re.sub(r"\\s+", "", query).lower()
+                item = next(
+                    (p for p in places
+                     if re.sub(r"\\s+", "", str(p.get("name", ""))).lower() == normalized),
+                    places[0],
+                )
+                address = item.get("new_address") or item.get("address")
+                lat, lng = item.get("lat"), item.get("lon")
+                if address and lat is not None and lng is not None:
+                    return item.get("name") or query, address, float(lat), float(lng), "ok"
+    except Exception:
+        pass
+
+    # 2) 기관명 검색 결과가 없으면 입력값을 주소로 보고 NCP 지오코딩 시도
     try:
         r = requests.get(
             GEOCODE_URL, params={"query": query}, headers=ncp_headers(), timeout=10
@@ -94,15 +125,15 @@ def search_departure_department(query: str):
             message = f"주소검색 연결 오류(HTTP {r.status_code})"
             if detail:
                 message += f": {detail}"
-            return None, None, None, message
+            return None, None, None, None, message
         addresses = r.json().get("addresses") or []
         if not addresses:
-            return None, None, None, "검색 결과가 없습니다. 건물명이 아닌 도로명주소를 입력해 주세요."
+            return None, None, None, None, "출발부서를 찾지 못했습니다. 정확한 부서명을 확인해 주세요."
         item = addresses[0]
         address = item.get("roadAddress") or item.get("jibunAddress") or query
-        return address, float(item["y"]), float(item["x"]), "ok"
+        return query, address, float(item["y"]), float(item["x"]), "ok"
     except Exception as exc:
-        return None, None, None, f"검색 중 오류가 발생했습니다({type(exc).__name__})."
+        return None, None, None, None, f"검색 중 오류가 발생했습니다({type(exc).__name__})."
 
 
 def address_variants(address: str, name: str = ""):
@@ -1211,38 +1242,30 @@ with page_basic:
     with st.container(border=True):
         card_title(2, "기본 정보 · 대상 목록")
         patrol_title = st.text_input("순찰 제목", value="예시) 소방안전 순찰노선 - 성주군 일원")
-        fire_station_name = st.text_input(
-            "소방서 이름", value="성주소방서",
-            help="관할 소방서 이름을 직접 입력하세요.",
-        )
-
-        station_query = st.text_input(
-            "출발부서 주소검색",
-            value=st.session_state.get("station_query", "경상북도 성주군 성주읍 주산로 193"),
-            placeholder="예: 경상북도 성주군 성주읍 주산로 193",
-            help="출발부서의 도로명주소 또는 지번주소를 입력하세요.",
-        )
+        station_input_col, station_search_col = st.columns([3, 1])
+        with station_input_col:
+            station_query = st.text_input(
+                "출발부서 이름",
+                value=st.session_state.get("station_query", "성주소방서"),
+                placeholder="예: 선남119안전센터",
+                help="소방서·119안전센터·구조구급센터 등 출발할 부서명을 입력하세요.",
+            )
         if station_query != st.session_state.get("station_query"):
             st.session_state["station_query"] = station_query
             st.session_state.pop("station_search_result", None)
 
-        search_col, guide_col = st.columns([1, 2])
-        with search_col:
+        with station_search_col:
+            st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
             search_station = st.button(
                 "🔎 주소검색", key="search_departure_department_btn",
-                type="primary", use_container_width=True, disabled=not has_keys(),
+                type="primary", use_container_width=True,
             )
-        with guide_col:
-            if not has_keys():
-                st.caption("NCP 지도 API 키를 설정하면 출발부서 검색을 사용할 수 있습니다.")
-            else:
-                st.caption("도로명주소를 입력하고 주소검색을 누르면 위도·경도가 자동 입력됩니다.")
 
         if search_station:
-            found_address, found_lat, found_lng, search_status = search_departure_department(station_query)
+            found_name, found_address, found_lat, found_lng, search_status = search_departure_department(station_query)
             if search_status == "ok":
                 st.session_state["station_search_result"] = {
-                    "name": fire_station_name.strip(), "address": found_address,
+                    "name": found_name, "address": found_address,
                     "lat": found_lat, "lng": found_lng,
                 }
             else:
@@ -1251,7 +1274,7 @@ with page_basic:
 
         station_result = st.session_state.get("station_search_result")
         if station_result:
-            station_name = fire_station_name.strip()
+            station_name = station_result["name"]
             station_address = station_result["address"]
             station_lat = station_result["lat"]
             station_lng = station_result["lng"]
@@ -1265,7 +1288,7 @@ with page_basic:
             station_address = ""
             station_lat = station_lng = None
 
-        route_prefix = fire_station_name.strip() or station_name
+        route_prefix = station_name
 
         st.markdown("**대상 목록 업로드**")
         st.markdown(
@@ -1412,7 +1435,7 @@ with page_basic:
     st.write("")
 
     basic_ready = bool(
-        patrol_title.strip() and fire_station_name.strip() and station_name.strip()
+        patrol_title.strip() and station_name.strip()
         and station_address.strip() and station_lat is not None and station_lng is not None
         and df is not None and len(df) and st.session_state.get("coords_df") is not None
         and st.session_state.get("coord_future") is None
