@@ -693,6 +693,25 @@ div[data-testid="stAlert"]{
   border-left:4px solid #557f99 !important; border-radius:10px !important;
   background:#eef4f8 !important;
 }
+/* 재난대응 활용범위 경고: 일반 안내와 혼동되지 않도록 전용 주황색 사용 */
+.paseru-safety-warning{
+  display:flex; align-items:flex-start; gap:14px;
+  margin:.65rem 0 .8rem; padding:15px 17px;
+  border:1.5px solid #e28713; border-left:7px solid #d96f00;
+  border-radius:11px; background:#fff1d6;
+  box-shadow:0 3px 10px rgba(217,111,0,.12);
+  color:#4a2b00 !important;
+}
+.paseru-safety-warning .warning-icon{
+  flex:none; font-size:34px; line-height:1; color:#d96f00 !important;
+  margin-top:1px;
+}
+.paseru-safety-warning .warning-body,
+.paseru-safety-warning .warning-body *{ color:#4a2b00 !important; }
+.paseru-safety-warning .warning-title{
+  display:block; margin-bottom:3px; font-size:16px; font-weight:800;
+  color:#9a4700 !important;
+}
 .paseru-sub{ color:#22324a !important; }
 
 /* 완료된 핵심 작업은 기존 실행 버튼 자리에 초록색 상태 버튼처럼 표시 */
@@ -1124,6 +1143,17 @@ def card_title(step, text):
 
 def sub_label(text):
     st.markdown(f'<div class="paseru-sub">{text}</div>', unsafe_allow_html=True)
+
+
+def safety_warning(text):
+    """재난대응 활용범위를 일반 안내와 구분해 보여주는 전용 경고 상자."""
+    st.markdown(
+        '<div class="paseru-safety-warning">'
+        '<div class="warning-icon" aria-hidden="true">⚠</div>'
+        '<div class="warning-body"><span class="warning-title">주의 · 활용 범위 안내</span>'
+        f'{html.escape(text)}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ---- PWA: 홈 화면에 앱처럼 추가할 수 있도록 매니페스트를 부모 문서에 주입(가능한 환경에서) ----
@@ -1790,8 +1820,8 @@ with page_details:
                 f"대상 1개소마다 현장 대응시간 {int(commander_stop_min)}분을 더해 "
                 "구역별 총 예상시간을 계산합니다."
             )
-            st.warning(
-                "⚠️ 본 결과는 평시 순찰계획 및 사전 검토를 위한 참고자료입니다. "
+            safety_warning(
+                "본 결과는 평시 순찰계획 및 사전 검토를 위한 참고자료입니다. "
                 "실제 재난대응 시에는 기상, 도로 통제, 재난 확산, 인명위험 및 가용 소방력 등 "
                 "실시간 변수가 반영되지 않으므로 현장지휘관의 판단과 공식 지휘체계를 우선하십시오."
             )
@@ -2598,8 +2628,8 @@ with page_build:
                        f"{meta.get('period_label', '순찰기간')} {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
                        + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
         if meta.get("purpose") == "① 현장 지휘구역 편성":
-            st.warning(
-                "⚠️ 활용 범위 안내: 이 노선은 평시 순찰계획과 사전 검토용입니다. "
+            safety_warning(
+                "이 노선은 평시 순찰계획과 사전 검토용입니다. "
                 "실제 재난현장에서는 실시간 상황이 반영되지 않으므로, "
                 "본 계산만으로 지휘·대응을 결정하지 말고 현장지휘관의 판단과 공식 지휘체계를 우선하십시오."
             )
