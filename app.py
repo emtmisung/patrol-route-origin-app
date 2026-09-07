@@ -1643,6 +1643,8 @@ with page_details:
         commander_vehicle = "지휘차"
         commander_vehicle_count = 1
         commander_route_count = 1
+        commander_oneway_limit = 20
+        commander_stop_min = 30
 
         if purpose == "guard":
             gc1, gc2 = st.columns([1.6, 1])
@@ -1742,6 +1744,33 @@ with page_details:
                     value=available_teams,
                     help="전체 대상을 몇 개 권역으로 나눌지 지정합니다.",
                 )
+            cc5, cc6 = st.columns(2)
+            with cc5:
+                commander_oneway_label = st.pills(
+                    "출발부서 기준 편도 허용시간",
+                    ["10분", "20분", "수동입력"],
+                    default="20분",
+                ) or "20분"
+                if commander_oneway_label == "수동입력":
+                    commander_oneway_limit = st.number_input(
+                        "편도 허용시간 직접 입력(분)",
+                        min_value=1, max_value=180, value=30,
+                    )
+                else:
+                    commander_oneway_limit = int(commander_oneway_label.replace("분", ""))
+            with cc6:
+                commander_stop_label = st.pills(
+                    "1개소당 현장 대응 소요시간",
+                    ["10분", "30분", "60분", "수동입력"],
+                    default="30분",
+                ) or "30분"
+                if commander_stop_label == "수동입력":
+                    commander_stop_min = st.number_input(
+                        "현장 대응시간 직접 입력(분)",
+                        min_value=1, max_value=360, value=45,
+                    )
+                else:
+                    commander_stop_min = int(commander_stop_label.replace("분", ""))
             simultaneous_routes = min(
                 int(commander_count), int(commander_vehicle_count), int(commander_route_count)
             )
@@ -1756,7 +1785,16 @@ with page_details:
                     f"지휘관 {int(commander_count)}명과 {commander_vehicle} {int(commander_vehicle_count)}대로 "
                     f"{int(commander_route_count)}개 구역을 동시에 담당할 수 있습니다."
                 )
-            st.caption("구역별 실제 이동거리와 예상 소요시간은 3단계 노선 생성·결과에서 확인합니다.")
+            st.caption(
+                f"편도 {int(commander_oneway_limit)}분 이내 대상을 배정하며, "
+                f"대상 1개소마다 현장 대응시간 {int(commander_stop_min)}분을 더해 "
+                "구역별 총 예상시간을 계산합니다."
+            )
+            st.warning(
+                "⚠️ 본 결과는 평시 순찰계획 및 사전 검토를 위한 참고자료입니다. "
+                "실제 재난대응 시에는 기상, 도로 통제, 재난 확산, 인명위험 및 가용 소방력 등 "
+                "실시간 변수가 반영되지 않으므로 현장지휘관의 판단과 공식 지휘체계를 우선하십시오."
+            )
 
     st.write("")
 
@@ -1932,7 +1970,8 @@ with page_details:
             inspect_dates = []
             st.caption(
                 f"지휘관 {int(commander_count)}명 · {commander_vehicle} {int(commander_vehicle_count)}대 · "
-                f"담당구역 {int(commander_route_count)}개를 기준으로 편성합니다. "
+                f"담당구역 {int(commander_route_count)}개 · 편도 {int(commander_oneway_limit)}분 이내 · "
+                f"현장당 {int(commander_stop_min)}분을 기준으로 편성합니다. "
                 "방문 날짜나 목적은 별도로 입력하지 않습니다."
             )
         else:
@@ -2015,7 +2054,8 @@ with page_details:
             st.markdown("**현장 지휘구역 자동 편성 기준**")
             st.caption(
                 f"전체 대상을 실제 도로거리상 가까운 권역끼리 묶어 {int(commander_route_count)}개 구역으로 나눕니다. "
-                "각 구역은 출발부서에서 출발·복귀하며, 구역별 총거리와 예상 소요시간을 계산합니다."
+                f"출발부서 기준 편도 {int(commander_oneway_limit)}분 이내 대상을 우선 배정하고, "
+                f"각 방문지의 현장 대응시간 {int(commander_stop_min)}분을 포함해 구역별 총시간을 계산합니다."
             )
         else:
             sub_label("가. 기준 방식")
@@ -2281,9 +2321,21 @@ with page_build:
             normal_points = allocate_hydrants_to_members(points, station, hydrant_members)
             far_points = []
         elif purpose == "other":
-            # 현장 지휘구역 편성은 거리가 멀어도 전 대상을 반드시 포함한다.
-            normal_points = points
-            far_points = []
+            long_progress = st.progress(0.0, text="출발부서 기준 편도시간 확인 중...")
+
+            def bump(total_hint=len(points)):
+                call_counter["n"] += 1
+                long_progress.progress(
+                    min(call_counter["n"] / max(total_hint, 1), 1.0),
+                    text=f"실제 도로시간 API 호출 중... ({call_counter['n']:,}/{max_calls:,}회)",
+                )
+
+            normal_points, far_points = separate_long_time(
+                points, station, float(commander_oneway_limit),
+                "편도 허용시간 초과 - 별도 지휘구역 검토",
+                on_call=bump, should_stop=over_limit,
+            )
+            long_progress.empty()
         else:
             long_progress = st.progress(0.0, text="소방서 기준 실도로거리 확인 중...")
 
@@ -2343,6 +2395,7 @@ with page_build:
                 None, None, None, commander_route_count,
                 basis="distance", on_call=bump_build,
                 candidate_k=candidate_k, should_stop=over_limit,
+                service_min_per_stop=int(commander_stop_min),
             )
         else:
             routes, unassigned = build_routes(
@@ -2391,7 +2444,8 @@ with page_build:
             team_info = (
                 f" · 지휘관 {int(commander_count)}명 · {commander_vehicle} {int(commander_vehicle_count)}대"
                 f" · 담당구역 {len(routes)}개 · 동시운영 {simultaneous_routes}개"
-                f" · 전체 커버 최소 {required_rounds}회"
+                f" · 전체 커버 최소 {required_rounds}회 · 편도 {int(commander_oneway_limit)}분 이내"
+                f" · 현장당 {int(commander_stop_min)}분"
             )
         elif purpose == "inspect":
             available_team_days = len(inspect_dates) * int(inspect_teams)
@@ -2405,7 +2459,7 @@ with page_build:
         elif purpose == "guard":
             team_info = f" · 매일 다른 코스로 순환({period_days}일간 {len(routes)}개 노선 배정)"
 
-        far_word = "편도 기준 초과" if purpose == "season" else "장거리 별도"
+        far_word = "편도 기준 초과" if purpose in ("season", "other") else "장거리 별도"
         st.success(f"[{purpose_label}] 총 {len(routes)}개 노선, {sum(len(r) for r in routes)}개소 배정 완료 "
                    f"({far_word} {len(far_points)}개소){team_info}")
         # 5) 확정 노선의 구간별 실도로거리·경로좌표
@@ -2426,7 +2480,8 @@ with page_build:
                     mins = km / AVG_SPEED_KMH * 60
                     path = [(cur["lat"], cur["lng"]), (p["lat"], p["lng"])]
                 service_min = (int(hydrant_inspection_min) if purpose == "hydrant" else
-                               int(season_stop_min) if purpose == "season" else 0)
+                               int(season_stop_min) if purpose == "season" else
+                               int(commander_stop_min) if purpose == "other" else 0)
                 legs.append({"from": cur["name"], "to": p["name"], "to_address": p.get("address", ""),
                              "km": km, "min": mins, "inspection_min": service_min,
                              "assigned_to": p.get("assigned_to", ""),
@@ -2542,13 +2597,19 @@ with page_build:
             st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')} · "
                        f"{meta.get('period_label', '순찰기간')} {meta.get('period','')} · 차량: {meta.get('vehicle','')}"
                        + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
+        if meta.get("purpose") == "① 현장 지휘구역 편성":
+            st.warning(
+                "⚠️ 활용 범위 안내: 이 노선은 평시 순찰계획과 사전 검토용입니다. "
+                "실제 재난현장에서는 실시간 상황이 반영되지 않으므로, "
+                "본 계산만으로 지휘·대응을 결정하지 말고 현장지휘관의 판단과 공식 지휘체계를 우선하십시오."
+            )
 
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("생성 노선 수", f"{len(route_results)}")
         m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
         m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
         m4.metric("노선 평균시간", f"{sum(r['total_min'] for r in route_results) / max(len(route_results), 1):.0f}분")
-        m5.metric("편도 기준 초과" if meta.get("purpose") == "③ 계절순찰" else "원거리 분리 대상",
+        m5.metric("편도 기준 초과" if meta.get("purpose") in ("① 현장 지휘구역 편성", "③ 계절순찰") else "원거리 분리 대상",
                   f"{len(far_points)}")
         if meta.get("purpose") == "③ 계절순찰":
             visit_runs = [r.get("period_runs", 0) for r in route_results if r.get("period_runs")]
