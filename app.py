@@ -2483,9 +2483,11 @@ with page_build:
             )
 
         # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
+        st.markdown("### 📌 다음 작업")
+        st.caption("담당자를 입력하거나 완성된 결과자료를 내려받으세요.")
         action_left, action_right = st.columns(2)
         with action_left:
-            with st.expander("선택 사항 · 담당 조·조원 입력", expanded=False):
+            with st.expander("👥 담당 조·조원 입력 (선택)", expanded=False):
                 st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
                 for rr in route_results:
                     st.markdown(f"**노선 {rr['route_no']}**")
@@ -2622,7 +2624,7 @@ with page_build:
             zf.writestr(f"4_{safe_title}_QR인쇄문서.html", printable_qr_html_bytes)
 
         with action_right:
-            with st.expander("📂 전체 자료 내려받기", expanded=False):
+            with st.expander("📦 최종 결과자료 받기", expanded=False):
                 st.markdown("### 공문서·현장 전달 자료")
                 st.caption("모든 자료는 한 번에 내려받고, 현장에서는 카카오 경로 링크를 바로 여세요.")
 
