@@ -1281,7 +1281,7 @@ with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설
     guide_cols = st.columns(2)
     with guide_cols[0]:
         st.markdown(
-            "- **현장 지휘구역 편성:** 지휘관 수에 맞춰 전 대상을 권역별로 자동 분할하고 이동시간을 계산합니다.\n"
+            "- **지휘관 현장방문:** 지휘관 수에 맞춰 전 대상을 권역별로 자동 분할하고 이동시간을 계산합니다.\n"
             "- **특별경계근무:** 명절·선거·축제의 주요 대상을 하루 1~2회 반복할 수 있습니다.\n"
             "- **계절순찰:** 하루 약 1시간씩 나누고 출동차량의 원거리 이동을 제한합니다."
         )
@@ -1622,10 +1622,10 @@ with page_details:
     # 2 · 순찰 방법과 세부 일정
     # ----------------------------------------------------------------------------
     PURPOSE_OPTIONS = [
-        "① 현장 지휘구역 편성", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
+        "① 지휘관 현장방문", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
     ]
     PURPOSE_HINT = {
-        "① 현장 지휘구역 편성": "투입 지휘관 수를 기준으로 전체 대상을 권역별로 자동 분할하고 구역별 이동거리와 소요시간을 계산합니다.",
+        "① 지휘관 현장방문": "투입 지휘관 수를 기준으로 전체 대상을 권역별로 자동 분할하고 구역별 이동거리와 소요시간을 계산합니다.",
         "② 특별경계근무용": "명절·선거·축제 등 특별경계근무 — 휴무 공장과 터미널·역·공항·행사장 등 주요 대상을 하루 1~2회 반복 순찰합니다.",
         "③ 계절순찰": "정해진 기간 동안 수행자·차량·편도 제한·1회 최대시간을 반영해 반복형 또는 전 대상 순환형 노선을 만듭니다.",
         "④ 예방검사": "숙박업소 등 점검 순찰.",
@@ -1648,7 +1648,7 @@ with page_details:
             with st.expander("❔ 선택한 순찰방법 설명 보기", expanded=False):
                 st.write(PURPOSE_HINT.get(purpose_label, ""))
         purpose = {
-            "① 현장 지휘구역 편성": "other", "② 특별경계근무용": "guard",
+            "① 지휘관 현장방문": "other", "② 특별경계근무용": "guard",
             "③ 계절순찰": "season", "④ 예방검사": "inspect",
             "⑤ 지리조사(센터용)": "hydrant",
         }.get(purpose_label, "other")
@@ -1956,7 +1956,7 @@ with page_details:
                 f"{int(hydrant_workdays)}개를 넘으면 시간을 늘리도록 안내합니다."
             )
         elif purpose == "other":
-            card_title(2, "현장 지휘구역 운영 조건")
+            card_title(2, "지휘관 현장방문 조건")
             visit_date = date.today()
             period_start = period_end = visit_date
             start_dt = datetime.combine(visit_date, dtime(9, 0))
@@ -2050,7 +2050,7 @@ with page_details:
             max_routes_cap = int(commander_route_count)
             basis_label = "거리 기준"
             basis = "distance"
-            st.markdown("**현장 지휘구역 자동 편성 기준**")
+            st.markdown("**지휘관 현장방문 자동 편성 기준**")
             st.caption(
                 f"전체 대상을 실제 도로거리상 가까운 권역끼리 묶어 {int(commander_route_count)}개 구역으로 나눕니다. "
                 f"출발부서 기준 편도 {int(commander_oneway_limit)}분 이내 대상을 우선 배정하고, "
@@ -2125,7 +2125,7 @@ with page_details:
             )
         else:
             long_threshold = 99999.0
-            st.caption("현장 지휘구역 편성은 원거리 대상을 제외하지 않고 전 대상을 권역별로 배정합니다.")
+            st.caption("지휘관 현장방문은 편도 허용시간 이내 대상을 지휘관 수에 맞춰 권역별로 배정합니다.")
 
         with st.expander("⚙️ 계산 과정·API 호출 설정 보기", expanded=False):
             st.caption("기본값 그대로 사용해도 됩니다. 비용이나 계산 정밀도를 직접 조정할 때만 변경하세요.")
@@ -2592,7 +2592,7 @@ with page_build:
                        f"{meta.get('period_label', '순찰기간')} {meta.get('period','')}"
                        + (f" · 차량: {meta['vehicle']}" if meta.get("vehicle") else "")
                        + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
-        if meta.get("purpose") == "① 현장 지휘구역 편성":
+        if meta.get("purpose") == "① 지휘관 현장방문":
             safety_warning(
                 "이 노선은 평시 순찰계획과 사전 검토용입니다. "
                 "실제 재난현장에서는 실시간 상황이 반영되지 않으므로, "
@@ -2604,7 +2604,7 @@ with page_build:
         m2.metric("전체 방문지", f"{sum(len(r['stops']) for r in route_results)}")
         m3.metric("총 이동거리(km)", f"{sum(r['total_km'] for r in route_results):.1f}")
         m4.metric("노선 평균시간", f"{sum(r['total_min'] for r in route_results) / max(len(route_results), 1):.0f}분")
-        m5.metric("편도 기준 초과" if meta.get("purpose") in ("① 현장 지휘구역 편성", "③ 계절순찰") else "원거리 분리 대상",
+        m5.metric("편도 기준 초과" if meta.get("purpose") in ("① 지휘관 현장방문", "③ 계절순찰") else "원거리 분리 대상",
                   f"{len(far_points)}")
         if meta.get("purpose") == "③ 계절순찰":
             visit_runs = [r.get("period_runs", 0) for r in route_results if r.get("period_runs")]
