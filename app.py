@@ -1251,7 +1251,7 @@ with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설
     guide_cols = st.columns(2)
     with guide_cols[0]:
         st.markdown(
-            "- **지휘관 현장방문:** 하루에 전 현장을 보는 것이 중요해 거리순으로 연결합니다.\n"
+            "- **현장 지휘구역 편성:** 지휘관·차량·담당구역 수에 맞춰 전 대상을 권역별로 나누고 이동시간을 계산합니다.\n"
             "- **특별경계근무:** 명절·선거·축제의 주요 대상을 하루 1~2회 반복할 수 있습니다.\n"
             "- **계절순찰:** 하루 약 1시간씩 나누고 출동차량의 원거리 이동을 제한합니다."
         )
@@ -1592,10 +1592,10 @@ with page_details:
     # 2 · 순찰 방법과 세부 일정
     # ----------------------------------------------------------------------------
     PURPOSE_OPTIONS = [
-        "① 지휘관 현장방문", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
+        "① 현장 지휘구역 편성", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
     ]
     PURPOSE_HINT = {
-        "① 지휘관 현장방문": "풍수해·산불·재난지역 등 모든 현장을 하루에 실제 도로거리순으로 방문합니다.",
+        "① 현장 지휘구역 편성": "투입 가능한 지휘관과 차량, 담당구역 수를 기준으로 전체 대상을 권역별로 나누고 구역별 이동거리와 소요시간을 계산합니다.",
         "② 특별경계근무용": "명절·선거·축제 등 특별경계근무 — 휴무 공장과 터미널·역·공항·행사장 등 주요 대상을 하루 1~2회 반복 순찰합니다.",
         "③ 계절순찰": "정해진 기간 동안 수행자·차량·편도 제한·1회 최대시간을 반영해 반복형 또는 전 대상 순환형 노선을 만듭니다.",
         "④ 예방검사": "숙박업소 등 점검 순찰.",
@@ -1618,7 +1618,7 @@ with page_details:
             with st.expander("❔ 선택한 순찰방법 설명 보기", expanded=False):
                 st.write(PURPOSE_HINT.get(purpose_label, ""))
         purpose = {
-            "① 지휘관 현장방문": "other", "② 특별경계근무용": "guard",
+            "① 현장 지휘구역 편성": "other", "② 특별경계근무용": "guard",
             "③ 계절순찰": "season", "④ 예방검사": "inspect",
             "⑤ 지리조사(센터용)": "hydrant",
         }.get(purpose_label, "other")
@@ -1639,8 +1639,10 @@ with page_details:
         season_oneway_limit = 30
         season_strategy = "전 대상 균등 순환"
         season_delegate = "의용소방대 순찰 권장"
-        commander_route_mode = "전체 대상을 하나의 노선으로 연결"
+        commander_count = 1
+        commander_vehicle = "지휘차"
         commander_vehicle_count = 1
+        commander_route_count = 1
 
         if purpose == "guard":
             gc1, gc2 = st.columns([1.6, 1])
@@ -1713,21 +1715,48 @@ with page_details:
                         "order": member_index,
                     })
         elif purpose == "other":
-            visit_purpose = st.pills(
-                "방문 목적", ["풍수해 현장", "산불 현장", "재난 현장", "기타"], default="재난 현장"
-            ) or "재난 현장"
-            commander_route_mode = st.pills(
-                "노선 구성",
-                ["전체 대상을 하나의 노선으로 연결", "여러 차량으로 균등 분할"],
-                default="전체 대상을 하나의 노선으로 연결",
-            ) or "전체 대상을 하나의 노선으로 연결"
-            if commander_route_mode == "여러 차량으로 균등 분할":
-                commander_vehicle_count = st.number_input("방문 차량 수", min_value=2, max_value=20, value=2)
-            commander_summary = (
-                f"① 지휘관 현장방문 · {visit_purpose} · {commander_route_mode} · "
-                "시간 제한 없이 실제 도로거리상 가까운 순서로 연결"
+            st.caption(
+                "현장 목적과 관계없이 투입 가능한 지휘관과 차량, 담당구역 수를 입력하면 "
+                "전체 대상을 구역별로 균등하게 나누고 이동거리와 예상 소요시간을 계산합니다."
             )
-            st.caption("입력한 조건은 좌표 검색 결과와 결합한 뒤 3단계 노선 생성·결과에서 확인합니다.")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                commander_count = st.number_input(
+                    "투입 지휘관 수", min_value=1, max_value=20, value=2,
+                    help="각 담당구역을 실제로 맡을 수 있는 지휘관 인원입니다.",
+                )
+            with cc2:
+                commander_vehicle = st.selectbox(
+                    "운용 차량 종류", ["지휘차", "소방차", "구급차", "행정차", "기타"]
+                )
+            cc3, cc4 = st.columns(2)
+            with cc3:
+                commander_vehicle_count = st.number_input(
+                    "운용 차량 수", min_value=1, max_value=20, value=2,
+                    help="동시에 움직일 수 있는 차량 대수입니다.",
+                )
+            with cc4:
+                available_teams = max(1, min(int(commander_count), int(commander_vehicle_count)))
+                commander_route_count = st.number_input(
+                    "담당구역(노선) 수", min_value=1, max_value=20,
+                    value=available_teams,
+                    help="전체 대상을 몇 개 권역으로 나눌지 지정합니다.",
+                )
+            simultaneous_routes = min(
+                int(commander_count), int(commander_vehicle_count), int(commander_route_count)
+            )
+            required_rounds = math.ceil(int(commander_route_count) / max(simultaneous_routes, 1))
+            if int(commander_route_count) > available_teams:
+                st.warning(
+                    f"현재 자원으로 동시에 운영 가능한 구역은 {available_teams}개입니다. "
+                    f"{int(commander_route_count)}개 구역을 모두 담당하려면 최소 {required_rounds}회로 나누어 운용해야 합니다."
+                )
+            else:
+                st.success(
+                    f"지휘관 {int(commander_count)}명과 {commander_vehicle} {int(commander_vehicle_count)}대로 "
+                    f"{int(commander_route_count)}개 구역을 동시에 담당할 수 있습니다."
+                )
+            st.caption("구역별 실제 이동거리와 예상 소요시간은 3단계 노선 생성·결과에서 확인합니다.")
 
     st.write("")
 
@@ -1889,21 +1918,23 @@ with page_details:
                 f"{int(hydrant_workdays)}개를 넘으면 시간을 늘리도록 안내합니다."
             )
         elif purpose == "other":
-            card_title(2, "지휘관 현장방문")
-            commander_vehicle = st.selectbox("방문 차량", ["지휘차", "행정차", "소방차", "기타"])
+            card_title(2, "현장 지휘구역 운영 조건")
             visit_date = date.today()
             period_start = period_end = visit_date
             start_dt = datetime.combine(visit_date, dtime(9, 0))
             end_dt = datetime.combine(visit_date, dtime(18, 0))
             period_days = 1
-            vehicle = commander_vehicle
+            vehicle = f"{commander_vehicle} {int(commander_vehicle_count)}대"
             inspect_weekdays = []
             inspect_teams = 1
             inspect_daily_hours = 6.0
             inspect_minutes = 40
             inspect_dates = []
-            st.caption("일정(날짜)은 중요하지 않으므로 별도로 입력받지 않습니다. "
-                       "시간 제한 없이 선택한 모든 현장을 실제 도로거리순으로 방문합니다.")
+            st.caption(
+                f"지휘관 {int(commander_count)}명 · {commander_vehicle} {int(commander_vehicle_count)}대 · "
+                f"담당구역 {int(commander_route_count)}개를 기준으로 편성합니다. "
+                "방문 날짜나 목적은 별도로 입력하지 않습니다."
+            )
         else:
             card_title(2, "순찰 기간 · 순찰 차량")
             inspect_weekdays = []
@@ -1978,16 +2009,13 @@ with page_details:
             target_min_low = target_min_high = None
             seg_max_km = seg_max_min = None
             max_per_route = 100
-            max_routes_cap = (int(commander_vehicle_count)
-                              if commander_route_mode == "여러 차량으로 균등 분할" else 1)
+            max_routes_cap = int(commander_route_count)
             basis_label = "거리 기준"
             basis = "distance"
-            st.markdown("**지휘관 현장방문 자동 편성 기준**")
+            st.markdown("**현장 지휘구역 자동 편성 기준**")
             st.caption(
-                "시간 제한 없이 전 대상을 가까운 순서로 연결합니다. "
-                + (f"차량 {int(commander_vehicle_count)}대에 균등하게 나눕니다."
-                   if commander_route_mode == "여러 차량으로 균등 분할"
-                   else "기본적으로 하루 한 개 노선으로 편성합니다.")
+                f"전체 대상을 실제 도로거리상 가까운 권역끼리 묶어 {int(commander_route_count)}개 구역으로 나눕니다. "
+                "각 구역은 출발부서에서 출발·복귀하며, 구역별 총거리와 예상 소요시간을 계산합니다."
             )
         else:
             sub_label("가. 기준 방식")
@@ -2058,7 +2086,7 @@ with page_details:
             )
         else:
             long_threshold = 99999.0
-            st.caption("지휘관 현장방문은 원거리 대상을 제외하지 않고 전 대상을 거리순으로 편성합니다.")
+            st.caption("현장 지휘구역 편성은 원거리 대상을 제외하지 않고 전 대상을 권역별로 배정합니다.")
 
         with st.expander("⚙️ 계산 과정·API 호출 설정 보기", expanded=False):
             st.caption("기본값 그대로 사용해도 됩니다. 비용이나 계산 정밀도를 직접 조정할 때만 변경하세요.")
@@ -2253,7 +2281,7 @@ with page_build:
             normal_points = allocate_hydrants_to_members(points, station, hydrant_members)
             far_points = []
         elif purpose == "other":
-            # 지휘관 현장방문은 거리가 멀어도 전 대상을 반드시 포함한다.
+            # 현장 지휘구역 편성은 거리가 멀어도 전 대상을 반드시 포함한다.
             normal_points = points
             far_points = []
         else:
@@ -2309,8 +2337,6 @@ with page_build:
                 routes.extend(vehicle_routes)
                 unassigned.extend(vehicle_unassigned)
         elif purpose == "other":
-            commander_route_count = (int(commander_vehicle_count)
-                                     if commander_route_mode == "여러 차량으로 균등 분할" else 1)
             commander_per_route = max(1, math.ceil(len(normal_points) / commander_route_count))
             routes, unassigned = build_routes(
                 normal_points, station, "fixed", commander_per_route,
@@ -2358,9 +2384,15 @@ with page_build:
                          f" · 1회 최대 {int(season_target_min)}분"
                          f" · 편도 {season_oneway_limit:g}{limit_unit} 제한")
         elif purpose == "other":
-            team_info = (f" · {visit_purpose} · {commander_route_mode}"
-                         + (f"({int(commander_vehicle_count)}대)"
-                            if commander_route_mode == "여러 차량으로 균등 분할" else ""))
+            simultaneous_routes = min(
+                int(commander_count), int(commander_vehicle_count), max(len(routes), 1)
+            )
+            required_rounds = math.ceil(len(routes) / max(simultaneous_routes, 1))
+            team_info = (
+                f" · 지휘관 {int(commander_count)}명 · {commander_vehicle} {int(commander_vehicle_count)}대"
+                f" · 담당구역 {len(routes)}개 · 동시운영 {simultaneous_routes}개"
+                f" · 전체 커버 최소 {required_rounds}회"
+            )
         elif purpose == "inspect":
             available_team_days = len(inspect_dates) * int(inspect_teams)
             assigned_targets = sum(len(route) for route in routes)
