@@ -2124,11 +2124,7 @@ with page_build:
                 )
                 st.session_state["coords_df"] = edited
 
-                st.download_button(
-                    "📥 확정된 좌표 CSV로 저장 (다음엔 이 파일을 올리면 좌표 찾기 없이 바로 진행)",
-                    data=edited.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="확정좌표.csv", mime="text/csv",
-                )
+                st.success("✅ 확정된 좌표는 자동으로 저장되어 노선 생성에 바로 반영됩니다.")
 
             ready = edited["위도"].notna() & edited["경도"].notna()
             n_ready = int(ready.sum())
