@@ -2145,9 +2145,18 @@ with page_build:
                         "비고": st.column_config.TextColumn(disabled=True, width="large"),
                     },
                 )
-                st.session_state["coords_df"] = edited
+                # 사용자가 별도 저장 버튼을 누르지 않아도 수정된 좌표를 현재 작업에 즉시 보존한다.
+                st.session_state["coords_df"] = edited.copy()
 
-                st.success("✅ 확정된 좌표는 자동으로 저장되어 노선 생성에 바로 반영됩니다.")
+                st.markdown(
+                    '''<div style="margin-top:0.75rem;padding:0.9rem 1rem;
+                        border:1px solid #48a774;border-left:6px solid #238553;border-radius:10px;
+                        background:#e5f6ed;color:#155f3b;font-weight:750;line-height:1.55;">
+                        ✅ 확정된 좌표는 백그라운드에서 자동 저장되며 노선 생성에 바로 반영됩니다.<br>
+                        <span style="font-weight:550;color:#28704b;">별도의 저장 버튼을 누르지 않아도 됩니다.</span>
+                    </div>''',
+                    unsafe_allow_html=True,
+                )
 
             ready = edited["위도"].notna() & edited["경도"].notna()
             n_ready = int(ready.sum())
