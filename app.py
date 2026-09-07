@@ -1529,7 +1529,7 @@ with page_details:
                 ) or "편도시간(분)"
             with sc4:
                 season_oneway_limit = st.number_input(
-                    "편도 제한값",
+                    "편도 제한값(분 또는 km)",
                     min_value=1.0,
                     max_value=120.0,
                     value=30.0 if season_limit_basis == "편도시간(분)" else 20.0,
@@ -1933,7 +1933,7 @@ with page_details:
 
             max_calls = st.number_input(
                 "최대 API 호출 수", min_value=50, max_value=100000,
-                value=1500, step=100,
+                value=500, step=100,
                 help="설정한 횟수에 도달하면 비용 보호를 위해 추가 호출을 중단합니다.",
             )
 
