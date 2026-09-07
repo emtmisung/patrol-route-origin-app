@@ -1405,10 +1405,9 @@ with page_basic:
                 if fail_early:
                     st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
                 else:
-                    coord_result_col, _, _ = st.columns(3)
-                    with coord_result_col:
-                        with st.expander(f"🙂 좌표 검색 완료 · {len(saved_early)}건 결과 보기", expanded=False):
-                            st.dataframe(saved_early, use_container_width=True, hide_index=True)
+                    st.success(f"✅ 좌표 확인 완료 · {len(saved_early)}건 모두 확인되었습니다.")
+                    with st.expander("🔎 좌표 검색 결과 보기", expanded=False):
+                        st.dataframe(saved_early, use_container_width=True, hide_index=True)
 
     st.write("")
 
@@ -2495,54 +2494,53 @@ with page_build:
             return buf.getvalue()
 
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
+
+        # 공문서 작업과 현장 전달에 필요한 4개 자료를 하나의 ZIP으로 묶는다.
+        wide_excel_bytes = build_wide_excel(station, route_results, far_points, meta)
+        route_links_excel_bytes = build_route_links_excel(station, route_results)
+        qr_zip_bytes = build_qr_zip(station, route_results)
+        printable_qr_html_bytes = build_printable_qr_html(station, route_results, meta)
+
+        all_materials = io.BytesIO()
+        with zipfile.ZipFile(all_materials, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"1_{safe_title}_최종순찰표.xlsx", wide_excel_bytes)
+            zf.writestr(f"2_{safe_title}_카카오맵_경로링크.xlsx", route_links_excel_bytes)
+            zf.writestr(f"3_{safe_title}_QR코드_전체.zip", qr_zip_bytes)
+            zf.writestr(f"4_{safe_title}_QR인쇄문서.html", printable_qr_html_bytes)
+
         with st.expander("📂 전체 노선 · 현장 전달 자료 내려받기", expanded=False):
-            st.markdown("### 필요한 자료 내려받기")
-            st.caption("현장 전달 방식에 맞는 자료만 골라 내려받으세요.")
+            st.markdown("### 공문서·현장 전달 자료")
+            st.caption("모든 자료는 한 번에 내려받고, 현장에서는 카카오 경로 링크를 바로 여세요.")
 
-            out_left, out_right = st.columns(2)
-            with out_left:
-                st.markdown("**🔵 행정·검토용 순찰표**")
+            download_col, link_col = st.columns(2)
+            with download_col:
                 st.download_button(
-                    "📥 최종 순찰표 엑셀 받기",
-                    data=build_wide_excel(station, route_results, far_points, meta),
-                    file_name=f"{safe_title}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="secondary",
-                )
-            with out_right:
-                st.markdown("**🟡 현장 내비게이션 링크**")
-                st.download_button(
-                    "🔗 카카오맵 경로·링크 엑셀 받기",
-                    data=build_route_links_excel(station, route_results),
-                    file_name=f"{safe_title}_노선별_경로와_링크.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="secondary",
-                )
-
-            qr_left, qr_right = st.columns(2)
-            with qr_left:
-                st.markdown("**🟣 휴대폰 전달용 QR 묶음**")
-                st.download_button(
-                    "📦 전체 노선 QR 묶음 받기",
-                    data=build_qr_zip(station, route_results),
-                    file_name=f"{safe_title}_QR코드_전체.zip",
+                    "📦 모든 자료 한 번에 내려받기",
+                    data=all_materials.getvalue(),
+                    file_name=f"{safe_title}_모든자료.zip",
                     mime="application/zip",
                     use_container_width=True,
-                    type="secondary",
                 )
-            with qr_right:
-                st.markdown("**🟢 차량 비치용 인쇄자료**")
-                st.download_button(
-                    "🖨 전체 노선 QR 인쇄문서 받기",
-                    data=build_printable_qr_html(station, route_results, meta),
-                    file_name=f"{safe_title}_QR인쇄.html",
-                    mime="text/html",
-                    use_container_width=True,
-                    type="secondary",
-                )
-            st.caption("인쇄용 문서를 열고 오른쪽 위의 ‘인쇄하기’를 누르면 노선별로 A4 한 장씩 출력됩니다.")
+            with link_col:
+                link_box = (st.popover("🔗 카카오 경로 링크 열기", use_container_width=True)
+                            if hasattr(st, "popover")
+                            else st.expander("🔗 카카오 경로 링크 열기"))
+                with link_box:
+                    st.markdown("**노선별 카카오맵 경로**")
+                    for rr in route_results:
+                        route_links = kakao_route_links(station, rr["legs"])
+                        for link_no, (kurl, _origin, _destinations) in enumerate(route_links, start=1):
+                            suffix = "" if len(route_links) == 1 else f" · {link_no}/{len(route_links)}구간"
+                            st.link_button(
+                                f"🚗 노선 {rr['route_no']}{suffix} 열기",
+                                kurl,
+                                use_container_width=True,
+                            )
+
+            st.caption(
+                "ZIP 파일에는 ① 최종 순찰표 ② 카카오맵 경로링크 ③ QR코드 묶음 "
+                "④ QR 인쇄문서가 들어 있습니다."
+            )
 
         target_min_ref = meta.get("target_min")
         if target_min_ref:
