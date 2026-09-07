@@ -1208,9 +1208,9 @@ with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설
         **파세루 오리진은 다음 순서로 사용합니다.**
 
         1. **표지·로그인** — 앱 안내와 개인정보 주의사항을 확인하고 비밀번호로 접속합니다.
-        1. **기본정보·대상목록** — 순찰 제목·출발 부서를 입력하고 대상명과 주소만 업로드해 좌표를 확인합니다.
-        2. **순찰 세부방법** — 순찰 용도·기간·차량·반복 방식과 출동 여건을 설정합니다.
-        3. **노선 생성·결과** — 확정된 좌표와 설정 결과를 바탕으로 실제 도로 기준 노선을 계산하고,
+        2. **기본정보·대상목록** — 순찰 제목·출발 부서를 입력하고 대상명과 주소만 업로드해 좌표를 확인합니다.
+        3. **순찰 세부방법** — 순찰 용도·기간·차량·반복 방식과 출동 여건을 설정합니다.
+        4. **노선 생성·결과** — 확정된 좌표와 설정 결과를 바탕으로 실제 도로 기준 노선을 계산하고,
            지도·카카오맵·QR·엑셀 결과를 바로 확인·다운로드합니다.
         """
     )
@@ -1238,45 +1238,35 @@ if not has_keys():
     )
 
 
-def next_tab_button(label, target_index, enabled=True):
-    """다음 단계 이동 버튼. 입력 전에는 회색, 완료 후에는 초록색으로 표시한다."""
-    target_names = ["1단계 기본정보", "2단계 순찰방법", "3단계 노선 생성 · 결과"]
+def next_tab_button(label, target_index):
+    """현재 입력을 유지한 채 다음 Streamlit 탭으로 이동한다."""
+    target_names = ["② 기본정보 · 대상목록", "③ 순찰 세부방법", "④ 노선 생성 · 결과"]
     target_name = target_names[target_index]
-    button_class = "paseru-next ready" if enabled else "paseru-next waiting"
-    button_action = 'onclick="goNext()"' if enabled else "disabled"
-    button_title = "입력 완료 · 다음 단계로 이동" if enabled else "필수 입력을 완료하면 이동할 수 있습니다"
     components.html(
         f"""
         <style>
           .paseru-next {{
             width:33.333%; min-width:240px; padding:11px 12px 11px 22px;
-            border-radius:999px; color:#fff;
+            border:2px solid #207447; border-radius:999px;
+            background:linear-gradient(135deg,#238553,#17663e); color:#fff;
             font-family:Arial,'Noto Sans KR',sans-serif; font-size:15px; font-weight:800;
+            cursor:pointer; box-shadow:0 8px 20px -9px rgba(23,102,62,.8);
             display:flex; align-items:center; justify-content:space-between; gap:12px;
             transition:transform .16s ease,box-shadow .16s ease,filter .16s ease;
           }}
-          .paseru-next.ready {{
-            border:2px solid #207447; background:linear-gradient(135deg,#238553,#17663e);
-            cursor:pointer; box-shadow:0 8px 20px -9px rgba(23,102,62,.8);
-          }}
-          .paseru-next.ready:hover {{
+          .paseru-next:hover {{
             transform:translateY(-2px); filter:brightness(1.06);
             box-shadow:0 12px 24px -10px rgba(23,102,62,.9);
-          }}
-          .paseru-next.waiting {{
-            border:2px solid #aeb6c0; background:#aeb6c0; color:#f8fafc;
-            cursor:not-allowed; box-shadow:none;
           }}
           .paseru-next .arrow {{
             width:34px; height:34px; flex:0 0 34px; border-radius:50%;
             display:flex; align-items:center; justify-content:center;
-            background:#fff; font-size:20px; font-weight:900;
+            background:#fff; color:#17663e; font-size:20px; font-weight:900;
           }}
-          .paseru-next.ready .arrow {{ color:#17663e; }}
-          .paseru-next.waiting .arrow {{ color:#7b8490; }}
         </style>
-        <button {button_action} class="{button_class}" title="{button_title}">
-          <span>{html.escape(label)}</span>
+        <button onclick="goNext()"
+          class="paseru-next" title="입력을 저장하고 다음 단계로 이동합니다">
+          <span>다음 단계로 이동 · {html.escape(label.replace('다음 · ', ''))}</span>
           <span class="arrow">→</span>
         </button>
         <script>
@@ -1324,16 +1314,16 @@ def next_tab_button(label, target_index, enabled=True):
 
 # ----------------------------------------------------------------------------
 page_basic, page_details, page_build = st.tabs([
-    "1단계 기본정보",
-    "2단계 순찰방법",
-    "3단계 노선 생성 · 결과",
+    "② 기본정보 · 대상목록",
+    "③ 순찰 세부방법",
+    "④ 노선 생성 · 결과",
 ])
 
 with page_basic:
     # 1 · 기본 정보 / 대상 목록
     # ----------------------------------------------------------------------------
     with st.container(border=True):
-        card_title(1, "기본 정보 · 대상 목록")
+        card_title(2, "기본 정보 · 대상 목록")
         patrol_title = st.text_input("순찰 제목", value="예시) 소방안전 순찰노선 - 성주군 일원")
         station_input_col, station_search_col = st.columns([3, 1])
         with station_input_col:
@@ -1533,9 +1523,10 @@ with page_basic:
         and df is not None and len(df) and st.session_state.get("coords_df") is not None
         and st.session_state.get("coord_future") is None
     )
-    next_tab_button("2단계로 이동", 1, enabled=basic_ready)
-    if not basic_ready:
-        st.caption("제목·출발부서·대상목록을 입력하고 좌표 검색을 완료하면 버튼이 초록색으로 바뀝니다.")
+    if basic_ready:
+        next_tab_button("다음 · ③ 순찰 세부방법", 1)
+    else:
+        st.caption("제목·출발부서·대상목록을 입력하고 좌표 검색이 끝나면 다음 버튼이 나타납니다.")
 
     # ----------------------------------------------------------------------------
 
@@ -1554,12 +1545,11 @@ with page_details:
     }
 
     with st.container(border=True):
-        card_title(2, "순찰 방법 · 세부 조건")
+        card_title(3, "순찰 방법 · 세부 조건")
         purpose_label = st.pills("노선 용도", PURPOSE_OPTIONS, default=None,
                                  label_visibility="collapsed")
         if not purpose_label:
             st.info("먼저 순찰방법을 하나 선택하면 대상 업로드와 세부 설정이 나타납니다.")
-            next_tab_button("3단계로 이동", 2, enabled=False)
             st.stop()
         if hasattr(st, "popover"):
             with st.popover("❔ 선택한 순찰방법 설명 보기"):
@@ -1678,7 +1668,7 @@ with page_details:
                 f"① 지휘관 현장방문 · {visit_purpose} · {commander_route_mode} · "
                 "시간 제한 없이 실제 도로거리상 가까운 순서로 연결"
             )
-            st.caption("입력한 조건은 좌표 검색 결과와 결합한 뒤 3단계 노선 생성·결과에서 확인합니다.")
+            st.caption("입력한 조건은 좌표 검색 결과와 결합한 뒤 ④ 노선 생성·결과 단계에서 확인합니다.")
 
     st.write("")
 
@@ -1693,7 +1683,7 @@ with page_details:
 
     with st.container(border=True):
         if purpose == "inspect":
-            card_title(2, "예방검사 일정")
+            card_title(3, "예방검사 일정")
             st.caption("대상 파일에는 대상명과 주소만 준비하면 됩니다. 공통 검사 조건은 여기에서 한 번만 설정합니다.")
 
             ic1, ic2 = st.columns(2)
@@ -1759,7 +1749,7 @@ with page_details:
             )
             vehicle = st.selectbox("검사 차량", ["소방차", "구급차", "행정차", "개인차"], index=2)
         elif purpose == "season":
-            card_title(2, "계절순찰 일정")
+            card_title(3, "계절순찰 일정")
             dc1, dc2 = st.columns(2)
             with dc1:
                 period_start = st.date_input("순찰 시작일", key="period_start")
@@ -1793,9 +1783,9 @@ with page_details:
             inspect_daily_hours = 6.0
             inspect_minutes = 40
             inspect_dates = []
-            st.caption("입력한 조건은 좌표 검색 결과와 결합한 뒤 3단계 노선 생성·결과에서 확인합니다.")
+            st.caption("입력한 조건은 좌표 검색 결과와 결합한 뒤 ④ 노선 생성·결과 단계에서 확인합니다.")
         elif purpose == "hydrant":
-            card_title(2, "월간 지리조사 설정")
+            card_title(3, "월간 지리조사 설정")
             st.caption("당비비 근무 기준으로 한 달 10번의 당번일 안에 전체 소화전을 점검하도록 노선을 나눕니다.")
             hc1, hc2 = st.columns(2)
             with hc1:
@@ -1840,7 +1830,7 @@ with page_details:
                 f"{int(hydrant_workdays)}개를 넘으면 시간을 늘리도록 안내합니다."
             )
         elif purpose == "other":
-            card_title(2, "지휘관 현장방문")
+            card_title(3, "지휘관 현장방문")
             commander_vehicle = st.selectbox("방문 차량", ["지휘차", "행정차", "소방차", "기타"])
             visit_date = date.today()
             period_start = period_end = visit_date
@@ -1856,7 +1846,7 @@ with page_details:
             st.caption("일정(날짜)은 중요하지 않으므로 별도로 입력받지 않습니다. "
                        "시간 제한 없이 선택한 모든 현장을 실제 도로거리순으로 방문합니다.")
         else:
-            card_title(2, "순찰 기간 · 순찰 차량")
+            card_title(3, "순찰 기간 · 순찰 차량")
             inspect_weekdays = []
             inspect_teams = 1
             inspect_daily_hours = 6.0
@@ -1890,7 +1880,7 @@ with page_details:
     # 4 · 노선 조건 설정
     # ----------------------------------------------------------------------------
     with st.expander("💡 ④ 상세 노선 조건 보기", expanded=False):
-        card_title(2, "노선 조건 설정")
+        card_title(3, "노선 조건 설정")
 
         if purpose == "season":
             mode = "target_time"
@@ -2031,7 +2021,7 @@ with page_details:
             )
 
     st.write("")
-    next_tab_button("3단계로 이동", 2, enabled=True)
+    next_tab_button("다음 · ④ 노선 생성", 2)
 
 
 with page_build:
@@ -2087,9 +2077,9 @@ with page_build:
                            and saved_coords["위도"].notna().all()
                            and saved_coords["경도"].notna().all())
         if st.session_state.get("coord_future") is not None:
-            st.info("🔍 좌표 검색 중입니다. 1단계 기본정보에서 완료 상태를 확인하세요.")
+            st.info("🔍 좌표 검색 중입니다. ② 기본정보·대상목록 탭에서 완료 상태를 확인하세요.")
         elif saved_coords is None:
-            st.warning("⚠️ 1단계 기본정보에서 좌표를 먼저 검색해주세요.")
+            st.warning("⚠️ ② 기본정보·대상목록 탭에서 좌표를 먼저 검색해주세요.")
 
         coords_df = st.session_state.get("coords_df")
 
@@ -2124,7 +2114,11 @@ with page_build:
                 )
                 st.session_state["coords_df"] = edited
 
-                st.success("✅ 확정된 좌표는 자동으로 저장되어 노선 생성에 바로 반영됩니다.")
+                st.download_button(
+                    "📥 확정된 좌표 CSV로 저장 (다음엔 이 파일을 올리면 좌표 찾기 없이 바로 진행)",
+                    data=edited.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="확정좌표.csv", mime="text/csv",
+                )
 
             ready = edited["위도"].notna() & edited["경도"].notna()
             n_ready = int(ready.sum())
@@ -2144,7 +2138,7 @@ with page_build:
     else:
         run = False
         edited = None
-        st.info("먼저 1단계 기본정보에서 대상 목록을 업로드해 주세요.")
+        st.info("먼저 ② 기본정보·대상목록 탭에서 대상 목록을 업로드해 주세요.")
 
     if run:
         # ---- 중단 장치 ----------------------------------------------------
@@ -2168,7 +2162,7 @@ with page_build:
         # 1) 기본정보에서 검색·확정한 출발부서 좌표 사용
         s_lat, s_lng = station_lat, station_lng
         if s_lat is None or s_lng is None:
-            st.error("1단계 기본정보에서 출발부서를 먼저 검색해주세요.")
+            st.error("② 기본정보·대상목록에서 출발부서를 먼저 검색해주세요.")
             st.stop()
         station = {"name": station_name, "lat": s_lat, "lng": s_lng}
 
@@ -2483,16 +2477,16 @@ with page_build:
             )
 
         # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
-        st.markdown("### 📌 다음 작업")
-        st.caption("담당자를 입력하거나 완성된 결과자료를 내려받으세요.")
-        action_left, action_right = st.columns(2)
-        with action_left:
-            with st.expander("👥 담당 조·조원 입력 (선택)", expanded=False):
-                st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
-                for rr in route_results:
+        with st.expander("선택 사항 · 노선별 담당 조와 조원 입력", expanded=False):
+            st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
+            for rr in route_results:
+                tc1, tc2, tc3 = st.columns([0.8, 1.2, 2])
+                with tc1:
                     st.markdown(f"**노선 {rr['route_no']}**")
+                with tc2:
                     st.text_input("담당 조 이름", key=f"team_name_{rr['route_no']}",
                                   placeholder="예) 가천1팀1조", label_visibility="collapsed")
+                with tc3:
                     st.text_input("조원", key=f"team_members_{rr['route_no']}",
                                   placeholder="조원 예) 홍길동, 이순신", label_visibility="collapsed")
 
@@ -2623,53 +2617,60 @@ with page_build:
             zf.writestr(f"3_{safe_title}_QR코드_전체.zip", qr_zip_bytes)
             zf.writestr(f"4_{safe_title}_QR인쇄문서.html", printable_qr_html_bytes)
 
-        with action_right:
-            with st.expander("📦 최종 결과자료 받기", expanded=False):
-                st.markdown("### 공문서·현장 전달 자료")
-                st.caption("모든 자료는 한 번에 내려받고, 현장에서는 카카오 경로 링크를 바로 여세요.")
+        with st.expander("📂 전체 노선 · 현장 전달 자료 내려받기", expanded=False):
+            st.markdown("### 공문서·현장 전달 자료")
+            st.caption("모든 자료는 한 번에 내려받고, 현장에서는 카카오 경로 링크를 바로 여세요.")
 
+            download_col, link_col = st.columns(2)
+            with download_col:
                 if is_center_route:
                     st.download_button(
-                        "🖨 센터용 노선결과 내려받기", data=center_print_bytes,
-                        file_name=f"{safe_title}_센터용_노선결과.html", mime="text/html",
+                        "🖨 센터용 노선결과 내려받기",
+                        data=center_print_bytes,
+                        file_name=f"{safe_title}_센터용_노선결과.html",
+                        mime="text/html",
                         use_container_width=True,
                     )
                 else:
                     st.download_button(
-                        "📦 모든 자료 한 번에 내려받기", data=all_materials.getvalue(),
-                        file_name=f"{safe_title}_모든자료.zip", mime="application/zip",
+                        "📦 모든 자료 한 번에 내려받기",
+                        data=all_materials.getvalue(),
+                        file_name=f"{safe_title}_모든자료.zip",
+                        mime="application/zip",
                         use_container_width=True,
                     )
-
+            with link_col:
                 link_box = (st.popover("🔗 카카오 경로 링크 열기", use_container_width=True)
-                            if hasattr(st, "popover") else st.expander("🔗 카카오 경로 링크 열기"))
+                            if hasattr(st, "popover")
+                            else st.expander("🔗 카카오 경로 링크 열기"))
                 with link_box:
+                    st.markdown("**노선별 카카오맵 경로**")
                     for rr in route_results:
                         route_links = kakao_route_links(station, rr["legs"])
                         for link_no, (kurl, _origin, _destinations) in enumerate(route_links, start=1):
                             suffix = "" if len(route_links) == 1 else f" · {link_no}/{len(route_links)}구간"
-                            st.link_button(f"🚗 노선 {rr['route_no']}{suffix} 열기", kurl,
-                                           use_container_width=True)
+                            st.link_button(
+                                f"🚗 노선 {rr['route_no']}{suffix} 열기",
+                                kurl,
+                                use_container_width=True,
+                            )
 
-                if is_center_route:
-                    st.caption("문서를 열어 인쇄하면 노선별로 A4 한 장씩 출력됩니다.")
-                else:
-                    st.caption("순찰표·경로링크·QR코드·QR 인쇄문서가 들어 있습니다.")
+            if is_center_route:
+                st.caption("센터용 문서를 열어 ‘인쇄하기’를 누르면 노선별 지도·방문순서·확인란이 A4 가로 한 장씩 출력됩니다.")
+            else:
+                st.caption(
+                    "ZIP 파일에는 ① 최종 순찰표 ② 카카오맵 경로링크 ③ QR코드 묶음 "
+                    "④ QR 인쇄문서가 들어 있습니다."
+                )
 
         target_min_ref = meta.get("target_min")
         if target_min_ref:
             over = [r for r in route_results if r["total_min"] > target_min_ref]
             if over:
-                over_routes = ", ".join(str(r["route_no"]) for r in over)
-                st.markdown(
-                    f'''<div style="margin:0.75rem 0 1rem;padding:1rem 1.15rem;
-                        border:2px solid #e58a14;border-left:7px solid #d97706;border-radius:10px;
-                        background:#fff3df;color:#7c3f00;font-weight:650;line-height:1.6;">
-                        <strong style="color:#a94f00;font-size:1.02rem;">⚠️ {target_min_ref:g}분 초과 노선 안내</strong><br>
-                        목표시간을 넘는 노선이 {len(over)}개 있습니다. (노선 {over_routes})<br>
-                        노선당 방문지 수를 줄이거나 목표시간을 늘려 다시 편성해 주세요.
-                    </div>''',
-                    unsafe_allow_html=True,
+                st.warning(
+                    f"⏱ 목표 {target_min_ref}분을 넘는 노선이 {len(over)}개 있습니다 "
+                    f"(노선 {', '.join(str(r['route_no']) for r in over)}). "
+                    "노선당 구간 수를 줄이거나 목표시간을 늘려 다시 편성해 보세요."
                 )
             else:
                 st.success(f"⏱ 모든 노선이 목표 {target_min_ref}분 이내입니다.")
