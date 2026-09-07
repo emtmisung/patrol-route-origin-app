@@ -1625,7 +1625,7 @@ with page_details:
         "① 지휘관 현장방문", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
     ]
     PURPOSE_HINT = {
-        "① 지휘관 현장방문": "투입 지휘관 수를 기준으로 전체 대상을 권역별로 자동 분할하고 구역별 이동거리와 소요시간을 계산합니다.",
+        "① 지휘관 현장방문": "방문 지휘관 수를 기준으로 전체 대상을 권역별로 자동 분할하고 구역별 이동거리와 소요시간을 계산합니다.",
         "② 특별경계근무용": "명절·선거·축제 등 특별경계근무 — 휴무 공장과 터미널·역·공항·행사장 등 주요 대상을 하루 1~2회 반복 순찰합니다.",
         "③ 계절순찰": "정해진 기간 동안 수행자·차량·편도 제한·1회 최대시간을 반영해 반복형 또는 전 대상 순환형 노선을 만듭니다.",
         "④ 예방검사": "숙박업소 등 점검 순찰.",
@@ -1746,11 +1746,11 @@ with page_details:
                     })
         elif purpose == "other":
             st.caption(
-                "현장 목적과 관계없이 투입 가능한 지휘관 수를 입력하면 지휘관별 담당구역을 자동으로 나누고 "
+                "방문 지휘관 수를 입력하면 지휘관별 담당구역을 자동으로 나누고 "
                 "구역별 이동거리와 예상 소요시간을 계산합니다."
             )
             commander_count = st.number_input(
-                "투입 지휘관 수", min_value=1, max_value=20, value=2,
+                "방문 지휘관 수", min_value=1, max_value=20, value=2,
                 help="지휘관 1명당 1개 담당구역이 자동으로 생성됩니다.",
             )
             commander_route_count = int(commander_count)
@@ -1782,7 +1782,7 @@ with page_details:
                 else:
                     commander_stop_min = int(commander_stop_label.replace("분", ""))
             st.success(
-                f"투입 지휘관 {int(commander_count)}명을 기준으로 "
+                f"방문 지휘관 {int(commander_count)}명을 기준으로 "
                 f"전체 대상을 최대 {int(commander_route_count)}개 담당구역으로 자동 분할합니다."
             )
             st.caption(
@@ -1970,8 +1970,7 @@ with page_details:
             inspect_dates = []
             st.caption(
                 f"지휘관 {int(commander_count)}명 기준 자동 분할 · 편도 {int(commander_oneway_limit)}분 이내 · "
-                f"현장당 {int(commander_stop_min)}분을 기준으로 편성합니다. "
-                "방문 날짜나 목적은 별도로 입력하지 않습니다."
+                f"현장당 {int(commander_stop_min)}분을 기준으로 편성합니다."
             )
         else:
             card_title(2, "순찰 기간 · 순찰 차량")
