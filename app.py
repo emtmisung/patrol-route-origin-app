@@ -3,6 +3,7 @@ import calendar
 import hmac
 import html
 import io
+import json
 import math
 import re
 import zipfile
@@ -1002,6 +1003,88 @@ header span, .people {{ font-size: 14px; color: #4b5563; }}
 </style></head><body>
 <button class="print-button" onclick="window.print()">🖨 인쇄하기</button>
 <p class="period">{period}</p>{"".join(cards)}
+</body></html>'''.encode("utf-8")
+
+
+def build_center_route_print_html(station, route_results, meta):
+    """센터 지리조사용: 지도·방문순서·확인란을 한 문서로 만든다."""
+    title = html.escape(str(meta.get("title") or "센터 지리조사 노선 결과"))
+    pages, map_scripts = [], []
+
+    for rr in route_results:
+        route_no = rr["route_no"]
+        map_id = f"route_map_{route_no}"
+        team_name = st.session_state.get(f"team_name_{route_no}", "")
+        auto_members = ", ".join(rr.get("assigned_members") or [])
+        team_members = st.session_state.get(f"team_members_{route_no}", "") or auto_members
+        vehicle = f"{rr.get('vehicle_no')}호차" if rr.get("vehicle_no") else ""
+
+        stop_rows = []
+        for index, leg in enumerate(rr["legs"], start=1):
+            assignee = leg.get("assigned_to") or ""
+            stop_rows.append(
+                '<li><span class="order">{}</span><div><strong>{}</strong><small>{}{}</small></div>'
+                '<span class="check">□</span></li>'.format(
+                    index,
+                    html.escape(str(leg["to"])),
+                    html.escape(str(leg.get("to_address") or "")),
+                    f" · 담당 {html.escape(str(assignee))}" if assignee else "",
+                )
+            )
+
+        people = " · ".join(v for v in (vehicle, team_name, team_members) if v)
+        pages.append(f'''
+<section class="route-page">
+  <header>
+    <p class="doc-title">{title}</p>
+    <div class="route-title"><strong>노선 {route_no}</strong>
+      <span>{len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분</span>
+    </div>
+    <p class="team">{html.escape(people)}</p>
+  </header>
+  <div class="route-body">
+    <div id="{map_id}" class="route-map"></div>
+    <div class="stops"><h2>방문 순서</h2><ol>{''.join(stop_rows)}</ol></div>
+  </div>
+  <footer>출발·복귀: {html.escape(station['name'])}　　확인자: ____________________</footer>
+</section>''')
+
+        path = rr.get("path") or [[station["lat"], station["lng"]]]
+        markers = [{"lat": station["lat"], "lng": station["lng"], "label": "출발·복귀"}]
+        markers += [
+            {"lat": leg["lat"], "lng": leg["lng"], "label": f"{i}. {leg['to']}"}
+            for i, leg in enumerate(rr["legs"], start=1)
+        ]
+        map_scripts.append(f'''
+const map{route_no}=L.map('{map_id}',{{zoomControl:true}});
+L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19,attribution:'© OpenStreetMap'}}).addTo(map{route_no});
+const path{route_no}={json.dumps(path, ensure_ascii=False)};
+const line{route_no}=L.polyline(path{route_no},{{color:'#a33a3f',weight:5}}).addTo(map{route_no});
+{json.dumps(markers, ensure_ascii=False)}.forEach((p,i)=>L.marker([p.lat,p.lng]).addTo(map{route_no}).bindTooltip(p.label));
+map{route_no}.fitBounds(line{route_no}.getBounds(),{{padding:[20,20]}});
+''')
+
+    return f'''<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+@page {{ size:A4 landscape; margin:12mm; }} *{{box-sizing:border-box}}
+body{{margin:0;color:#17263a;font-family:"Malgun Gothic",sans-serif;background:#eef1f4}}
+.print-button{{position:fixed;right:18px;top:18px;z-index:9999;padding:12px 20px;border:0;border-radius:9px;background:#a33a3f;color:#fff;font-weight:700;cursor:pointer}}
+.route-page{{width:273mm;min-height:186mm;margin:10mm auto;padding:8mm;background:#fff;page-break-after:always}}
+.route-page:last-of-type{{page-break-after:auto}} .doc-title{{margin:0;text-align:center;font-size:17px}}
+.route-title{{display:flex;align-items:baseline;gap:18px;border-bottom:3px solid #a33a3f;padding:5px 0 8px}}
+.route-title strong{{font-size:27px}} .route-title span{{font-size:16px;font-weight:700}} .team{{height:20px;margin:7px 0;color:#4b5563}}
+.route-body{{display:grid;grid-template-columns:58% 42%;gap:8mm;height:130mm}} .route-map{{width:100%;height:100%;border:1px solid #9aa5b1}}
+.stops{{overflow:hidden}} .stops h2{{font-size:18px;margin:0 0 7px}} ol{{list-style:none;padding:0;margin:0}}
+li{{display:grid;grid-template-columns:28px 1fr 28px;align-items:center;gap:7px;border-bottom:1px solid #d8dee7;padding:6px 2px}}
+.order{{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#315d78;color:#fff;font-weight:700}}
+li strong{{display:block;font-size:14px}} li small{{display:block;color:#4b5563;font-size:10px;margin-top:2px}} .check{{font-size:25px;text-align:center}}
+footer{{margin-top:7px;padding-top:5px;border-top:1px solid #9aa5b1;font-size:12px;color:#4b5563}}
+@media print{{body{{background:#fff}}.print-button{{display:none}}.route-page{{margin:0;box-shadow:none}}}}
+</style></head><body><button class="print-button" onclick="window.print()">🖨 인쇄하기</button>
+{''.join(pages)}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>{''.join(map_scripts)}</script>
 </body></html>'''.encode("utf-8")
 
 
@@ -2518,6 +2601,9 @@ with page_build:
 
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
 
+        is_center_route = meta.get("purpose") == "⑤ 지리조사(센터용)"
+        center_print_bytes = build_center_route_print_html(station, route_results, meta)
+
         # 공문서 작업과 현장 전달에 필요한 4개 자료를 하나의 ZIP으로 묶는다.
         wide_excel_bytes = build_wide_excel(station, route_results, far_points, meta)
         route_links_excel_bytes = build_route_links_excel(station, route_results)
@@ -2537,13 +2623,22 @@ with page_build:
 
             download_col, link_col = st.columns(2)
             with download_col:
-                st.download_button(
-                    "📦 모든 자료 한 번에 내려받기",
-                    data=all_materials.getvalue(),
-                    file_name=f"{safe_title}_모든자료.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                )
+                if is_center_route:
+                    st.download_button(
+                        "🖨 센터용 노선결과 내려받기",
+                        data=center_print_bytes,
+                        file_name=f"{safe_title}_센터용_노선결과.html",
+                        mime="text/html",
+                        use_container_width=True,
+                    )
+                else:
+                    st.download_button(
+                        "📦 모든 자료 한 번에 내려받기",
+                        data=all_materials.getvalue(),
+                        file_name=f"{safe_title}_모든자료.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
             with link_col:
                 link_box = (st.popover("🔗 카카오 경로 링크 열기", use_container_width=True)
                             if hasattr(st, "popover")
@@ -2560,10 +2655,13 @@ with page_build:
                                 use_container_width=True,
                             )
 
-            st.caption(
-                "ZIP 파일에는 ① 최종 순찰표 ② 카카오맵 경로링크 ③ QR코드 묶음 "
-                "④ QR 인쇄문서가 들어 있습니다."
-            )
+            if is_center_route:
+                st.caption("센터용 문서를 열어 ‘인쇄하기’를 누르면 노선별 지도·방문순서·확인란이 A4 가로 한 장씩 출력됩니다.")
+            else:
+                st.caption(
+                    "ZIP 파일에는 ① 최종 순찰표 ② 카카오맵 경로링크 ③ QR코드 묶음 "
+                    "④ QR 인쇄문서가 들어 있습니다."
+                )
 
         target_min_ref = meta.get("target_min")
         if target_min_ref:
