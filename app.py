@@ -2487,16 +2487,14 @@ with page_build:
             )
 
         # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
-        with st.expander("선택 사항 · 노선별 담당 조와 조원 입력", expanded=False):
-            st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
-            for rr in route_results:
-                tc1, tc2, tc3 = st.columns([0.8, 1.2, 2])
-                with tc1:
+        action_left, action_right = st.columns(2)
+        with action_left:
+            with st.expander("선택 사항 · 담당 조·조원 입력", expanded=False):
+                st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
+                for rr in route_results:
                     st.markdown(f"**노선 {rr['route_no']}**")
-                with tc2:
                     st.text_input("담당 조 이름", key=f"team_name_{rr['route_no']}",
                                   placeholder="예) 가천1팀1조", label_visibility="collapsed")
-                with tc3:
                     st.text_input("조원", key=f"team_members_{rr['route_no']}",
                                   placeholder="조원 예) 홍길동, 이순신", label_visibility="collapsed")
 
@@ -2627,60 +2625,53 @@ with page_build:
             zf.writestr(f"3_{safe_title}_QR코드_전체.zip", qr_zip_bytes)
             zf.writestr(f"4_{safe_title}_QR인쇄문서.html", printable_qr_html_bytes)
 
-        with st.expander("📂 전체 노선 · 현장 전달 자료 내려받기", expanded=False):
-            st.markdown("### 공문서·현장 전달 자료")
-            st.caption("모든 자료는 한 번에 내려받고, 현장에서는 카카오 경로 링크를 바로 여세요.")
+        with action_right:
+            with st.expander("📂 전체 자료 내려받기", expanded=False):
+                st.markdown("### 공문서·현장 전달 자료")
+                st.caption("모든 자료는 한 번에 내려받고, 현장에서는 카카오 경로 링크를 바로 여세요.")
 
-            download_col, link_col = st.columns(2)
-            with download_col:
                 if is_center_route:
                     st.download_button(
-                        "🖨 센터용 노선결과 내려받기",
-                        data=center_print_bytes,
-                        file_name=f"{safe_title}_센터용_노선결과.html",
-                        mime="text/html",
+                        "🖨 센터용 노선결과 내려받기", data=center_print_bytes,
+                        file_name=f"{safe_title}_센터용_노선결과.html", mime="text/html",
                         use_container_width=True,
                     )
                 else:
                     st.download_button(
-                        "📦 모든 자료 한 번에 내려받기",
-                        data=all_materials.getvalue(),
-                        file_name=f"{safe_title}_모든자료.zip",
-                        mime="application/zip",
+                        "📦 모든 자료 한 번에 내려받기", data=all_materials.getvalue(),
+                        file_name=f"{safe_title}_모든자료.zip", mime="application/zip",
                         use_container_width=True,
                     )
-            with link_col:
+
                 link_box = (st.popover("🔗 카카오 경로 링크 열기", use_container_width=True)
-                            if hasattr(st, "popover")
-                            else st.expander("🔗 카카오 경로 링크 열기"))
+                            if hasattr(st, "popover") else st.expander("🔗 카카오 경로 링크 열기"))
                 with link_box:
-                    st.markdown("**노선별 카카오맵 경로**")
                     for rr in route_results:
                         route_links = kakao_route_links(station, rr["legs"])
                         for link_no, (kurl, _origin, _destinations) in enumerate(route_links, start=1):
                             suffix = "" if len(route_links) == 1 else f" · {link_no}/{len(route_links)}구간"
-                            st.link_button(
-                                f"🚗 노선 {rr['route_no']}{suffix} 열기",
-                                kurl,
-                                use_container_width=True,
-                            )
+                            st.link_button(f"🚗 노선 {rr['route_no']}{suffix} 열기", kurl,
+                                           use_container_width=True)
 
-            if is_center_route:
-                st.caption("센터용 문서를 열어 ‘인쇄하기’를 누르면 노선별 지도·방문순서·확인란이 A4 가로 한 장씩 출력됩니다.")
-            else:
-                st.caption(
-                    "ZIP 파일에는 ① 최종 순찰표 ② 카카오맵 경로링크 ③ QR코드 묶음 "
-                    "④ QR 인쇄문서가 들어 있습니다."
-                )
+                if is_center_route:
+                    st.caption("문서를 열어 인쇄하면 노선별로 A4 한 장씩 출력됩니다.")
+                else:
+                    st.caption("순찰표·경로링크·QR코드·QR 인쇄문서가 들어 있습니다.")
 
         target_min_ref = meta.get("target_min")
         if target_min_ref:
             over = [r for r in route_results if r["total_min"] > target_min_ref]
             if over:
-                st.warning(
-                    f"⏱ 목표 {target_min_ref}분을 넘는 노선이 {len(over)}개 있습니다 "
-                    f"(노선 {', '.join(str(r['route_no']) for r in over)}). "
-                    "노선당 구간 수를 줄이거나 목표시간을 늘려 다시 편성해 보세요."
+                over_routes = ", ".join(str(r["route_no"]) for r in over)
+                st.markdown(
+                    f'''<div style="margin:0.75rem 0 1rem;padding:1rem 1.15rem;
+                        border:2px solid #e58a14;border-left:7px solid #d97706;border-radius:10px;
+                        background:#fff3df;color:#7c3f00;font-weight:650;line-height:1.6;">
+                        <strong style="color:#a94f00;font-size:1.02rem;">⚠️ {target_min_ref:g}분 초과 노선 안내</strong><br>
+                        목표시간을 넘는 노선이 {len(over)}개 있습니다. (노선 {over_routes})<br>
+                        노선당 방문지 수를 줄이거나 목표시간을 늘려 다시 편성해 주세요.
+                    </div>''',
+                    unsafe_allow_html=True,
                 )
             else:
                 st.success(f"⏱ 모든 노선이 목표 {target_min_ref}분 이내입니다.")
