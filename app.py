@@ -713,7 +713,8 @@ div[data-testid="stAlert"]{
   color:#9a4700 !important;
 }
 /* 예방검사는 일정 카드에서 노선 조건까지 자동 결정하므로 중복 상세설정은 숨긴다. */
-.st-key-inspect_route_settings_hidden{ display:none !important; }
+.st-key-inspect_route_settings_hidden,
+.st-key-hydrant_route_settings_hidden{ display:none !important; }
 .paseru-sub{ color:#22324a !important; }
 
 /* 완료된 핵심 작업은 기존 실행 버튼 자리에 초록색 상태 버튼처럼 표시 */
@@ -1720,32 +1721,16 @@ with page_details:
                 hydrant_member_count = st.number_input("지리조사 인원 수", min_value=1, max_value=30, value=2)
             with hc2:
                 hydrant_vehicle_count = st.number_input("운행 차량 수", min_value=1, max_value=15, value=1)
-            st.caption("전체 소화전을 인원수로 균등 배정하고, 같은 차량 팀원의 담당 구역은 서로 가깝게 묶습니다.")
-            with st.expander("차량별 팀원 편성", expanded=True):
-                vehicle_options = list(range(1, int(hydrant_vehicle_count) + 1))
-                for member_index in range(int(hydrant_member_count)):
-                    mc1, mc2 = st.columns([1.6, 1])
-                    default_vehicle = vehicle_options[member_index % len(vehicle_options)]
-                    with mc1:
-                        member_name = st.text_input(
-                            f"팀원 {member_index + 1}",
-                            value=f"대원{member_index + 1}",
-                            key=f"hydrant_member_name_{member_index}",
-                            help="공개 앱에서는 실명 대신 대원1, 대원2 같은 호출명을 권장합니다.",
-                        ).strip() or f"대원{member_index + 1}"
-                    with mc2:
-                        vehicle_no = st.selectbox(
-                            f"팀원 {member_index + 1} 차량",
-                            vehicle_options,
-                            index=vehicle_options.index(default_vehicle),
-                            format_func=lambda value: f"{value}호차",
-                            key=f"hydrant_member_vehicle_{member_index}",
-                        )
-                    hydrant_members.append({
-                        "name": member_name,
-                        "vehicle_no": int(vehicle_no),
-                        "order": member_index,
-                    })
+            st.caption("전체 소화전을 인원수로 균등 배정하고, 같은 차량의 담당 구역은 서로 가깝게 묶습니다.")
+            # 개인정보 보호를 위해 화면에서는 실명과 차량별 팀원 편성을 입력받지 않는다.
+            # 계산에는 익명 순번만 사용하고, 담당 조·조원은 내려받은 엑셀에서 작성한다.
+            for member_index in range(int(hydrant_member_count)):
+                hydrant_members.append({
+                    "name": "",
+                    "vehicle_no": (member_index % int(hydrant_vehicle_count)) + 1,
+                    "order": member_index,
+                })
+            st.info("🔒 개인정보 보호를 위해 팀원 이름은 앱에서 입력하지 않습니다. 담당 조·조원은 결과 엑셀을 내려받은 뒤 작성하세요.")
         elif purpose == "other":
             st.caption(
                 "방문 지휘관 수를 입력하면 지휘관별 담당구역을 자동으로 나누고 "
@@ -1918,15 +1903,8 @@ with page_details:
             inspect_dates = []
             st.caption("입력한 조건은 좌표 검색 결과와 결합한 뒤 3단계 노선 생성·결과에서 확인합니다.")
         elif purpose == "hydrant":
-            card_title(2, "월간 지리조사 설정")
+            card_title(2, "지리조사 설정")
             st.caption("당비비 근무 기준으로 한 달 10번의 당번일 안에 전체 소화전을 점검하도록 노선을 나눕니다.")
-            hc1, hc2 = st.columns(2)
-            with hc1:
-                survey_year = st.number_input("조사 연도", min_value=2024, max_value=2100, value=2026)
-            with hc2:
-                survey_month = st.selectbox("조사 월", list(range(1, 13)), index=8,
-                                            format_func=lambda value: f"{value}월")
-
             hc3, hc4, hc5, hc6 = st.columns(4)
             with hc3:
                 hydrant_workdays = st.number_input("월 당번 근무일", min_value=1, max_value=31, value=10)
@@ -1946,9 +1924,10 @@ with page_details:
             if hydrant_max_min < hydrant_target_min:
                 st.warning("최대 허용시간은 기본 목표시간보다 길게 설정해주세요.")
                 hydrant_max_min = hydrant_target_min
-            last_day = calendar.monthrange(int(survey_year), int(survey_month))[1]
-            period_start = date(int(survey_year), int(survey_month), 1)
-            period_end = date(int(survey_year), int(survey_month), last_day)
+            today = date.today()
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            period_start = date(today.year, today.month, 1)
+            period_end = date(today.year, today.month, last_day)
             start_dt = datetime.combine(period_start, dtime(0, 0))
             end_dt = datetime.combine(period_end, dtime(23, 59))
             period_days = int(hydrant_workdays)
@@ -2013,8 +1992,9 @@ with page_details:
     # ----------------------------------------------------------------------------
     # 4 · 노선 조건 설정
     # ----------------------------------------------------------------------------
-    route_settings_key = ("inspect_route_settings_hidden" if purpose == "inspect"
-                          else "route_settings_wrapper")
+    route_settings_key = ("inspect_route_settings_hidden" if purpose == "inspect" else
+                          "hydrant_route_settings_hidden" if purpose == "hydrant" else
+                          "route_settings_wrapper")
     with st.container(key=route_settings_key), st.expander("💡 ④ 상세 노선 조건 보기", expanded=False):
         card_title(2, "노선 조건 설정")
 
@@ -2392,8 +2372,11 @@ with page_build:
 
         def bump_build():
             call_counter["n"] += 1
-            build_progress.text(f"실도로 기준 노선 편성 중... "
-                                f"(API 호출 {call_counter['n']:,}/{max_calls:,}회)")
+            if purpose == "hydrant":
+                build_progress.text("지리조사 노선을 자동 편성하고 있습니다...")
+            else:
+                build_progress.text(f"실도로 기준 노선 편성 중... "
+                                    f"(API 호출 {call_counter['n']:,}/{max_calls:,}회)")
 
         if purpose == "hydrant":
             routes = []
@@ -2432,11 +2415,17 @@ with page_build:
         build_progress.empty()
 
         if limit_hit["v"]:
-            st.warning(
-                f"⛔ API 호출 한도({max_calls:,}회)에 도달해 노선 편성을 중단했습니다. "
-                f"그때까지 편성된 {len(routes)}개 노선은 아래에 그대로 표시됩니다. "
-                "한도를 늘리거나 'API 호출 절약'을 켜고 다시 실행해 보세요."
-            )
+            if purpose == "hydrant":
+                st.warning(
+                    f"⛔ 계산 범위 한도에 도달해 편성을 중단했습니다. "
+                    f"그때까지 편성된 {len(routes)}개 노선은 아래에 표시됩니다."
+                )
+            else:
+                st.warning(
+                    f"⛔ API 호출 한도({max_calls:,}회)에 도달해 노선 편성을 중단했습니다. "
+                    f"그때까지 편성된 {len(routes)}개 노선은 아래에 그대로 표시됩니다. "
+                    "한도를 늘리거나 'API 호출 절약'을 켜고 다시 실행해 보세요."
+                )
 
         if unassigned:
             for p in unassigned:
@@ -2589,11 +2578,11 @@ with page_build:
             "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
             "period": (f"{period_start:%Y-%m-%d} ~ {period_end:%Y-%m-%d} "
                        f"(검사 가능일 {len(inspect_dates)}일)" if purpose == "inspect" else
-                       f"{period_start:%Y년 %m월} · 월 당번 {int(hydrant_workdays)}일" if purpose == "hydrant" else
+                       "" if purpose == "hydrant" else
                        f"{period_start:%Y-%m-%d}" if purpose == "other" else
                        f"{start_dt:%Y-%m-%d %H:%M} ~ {end_dt:%Y-%m-%d %H:%M} ({period_days}일간)"),
             "period_label": ("검사기간" if purpose == "inspect" else
-                             "조사월" if purpose == "hydrant" else
+                             "" if purpose == "hydrant" else
                              "방문일" if purpose == "other" else "순찰기간"),
             "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
             "target_min": target_min,
@@ -2616,8 +2605,10 @@ with page_build:
         st.divider()
         st.header("📍 노선 생성 결과")
         if meta:
-            st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')} · "
-                       f"{meta.get('period_label', '순찰기간')} {meta.get('period','')}"
+            period_summary = (f" · {meta.get('period_label')} {meta.get('period')}"
+                              if meta.get("period_label") and meta.get("period") else "")
+            st.caption(f"**{meta.get('title','')}** · {meta.get('purpose','')} · 기준: {meta.get('basis','')}"
+                       + period_summary
                        + (f" · 차량: {meta['vehicle']}" if meta.get("vehicle") else "")
                        + (f" · {meta['team_info']}" if meta.get("team_info") else ""))
         if meta.get("purpose") == "① 지휘관 현장방문":
@@ -2664,19 +2655,24 @@ with page_build:
                 unsafe_allow_html=True,
             )
 
-        # ---- 담당 조 · 조원 입력(화면에서 직접 입력 → 엑셀에 그대로 반영) ----
+        # ---- 담당 조 · 조원 입력(지리조사는 개인정보 보호를 위해 엑셀에서만 작성) ----
         st.markdown("### 📌 다음 작업")
-        st.caption("담당자를 입력하거나 완성된 결과자료를 내려받으세요.")
-        action_left, action_right = st.columns(2)
-        with action_left:
-            with st.expander("👥 담당 조·조원 입력 (선택)", expanded=False):
-                st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
-                for rr in route_results:
-                    st.markdown(f"**노선 {rr['route_no']}**")
-                    st.text_input("담당 조 이름", key=f"team_name_{rr['route_no']}",
-                                  placeholder="예) 가천1팀1조", label_visibility="collapsed")
-                    st.text_input("조원", key=f"team_members_{rr['route_no']}",
-                                  placeholder="조원 예) 홍길동, 이순신", label_visibility="collapsed")
+        is_center_route = meta.get("purpose") == "⑤ 지리조사(센터용)"
+        if is_center_route:
+            st.caption("개인정보 보호를 위해 담당 조·조원은 화면에서 입력하지 않습니다. 결과자료를 내려받은 뒤 엑셀에서 작성하세요.")
+            action_right = st.container()
+        else:
+            st.caption("담당자를 입력하거나 완성된 결과자료를 내려받으세요.")
+            action_left, action_right = st.columns(2)
+            with action_left:
+                with st.expander("👥 담당 조·조원 입력 (선택)", expanded=False):
+                    st.caption("필요한 경우에만 입력하세요. 입력 내용은 최종 엑셀 파일에 반영됩니다.")
+                    for rr in route_results:
+                        st.markdown(f"**노선 {rr['route_no']}**")
+                        st.text_input("담당 조 이름", key=f"team_name_{rr['route_no']}",
+                                      placeholder="예) 가천1팀1조", label_visibility="collapsed")
+                        st.text_input("조원", key=f"team_members_{rr['route_no']}",
+                                      placeholder="조원 예) 홍길동, 이순신", label_visibility="collapsed")
 
         # ---- 엑셀(xlsx) 다운로드: 노선 1개 = 1행, 경유지가 옆으로 펼쳐지는 가로형 ----
         def build_wide_excel(station, route_results, far_points, meta):
@@ -2701,9 +2697,13 @@ with page_build:
             # 제목 줄
             total_cols = len(base_cols) + max_stops * 3 + 3
             ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(total_cols, 1))
-            title_cell = ws.cell(row=1, column=1, value=f"{meta.get('title', '순찰노선')}   "
-                                                        f"[{meta.get('purpose', '')} · {meta.get('vehicle', '')} · "
-                                                        f"{meta.get('period', '')}]")
+            title_parts = [value for value in (
+                meta.get("purpose", ""), meta.get("vehicle", ""), meta.get("period", "")
+            ) if value]
+            title_cell = ws.cell(
+                row=1, column=1,
+                value=f"{meta.get('title', '순찰노선')}   [{ ' · '.join(title_parts) }]",
+            )
             title_cell.font = Font(bold=True, size=13)
             title_cell.alignment = Alignment(horizontal="center", vertical="center")
 
@@ -2746,8 +2746,14 @@ with page_build:
                 ws.cell(row=r, column=c, value="근거리"); c += 1
                 auto_team = f"{rr.get('vehicle_no')}호차" if rr.get("vehicle_no") else ""
                 auto_members = ", ".join(rr.get("assigned_members") or [])
-                ws.cell(row=r, column=c, value=(st.session_state.get(f"team_name_{no}", "") or auto_team)); c += 1
-                ws.cell(row=r, column=c, value=(st.session_state.get(f"team_members_{no}", "") or auto_members)); c += 1
+                if meta.get("purpose") == "⑤ 지리조사(센터용)":
+                    team_value = ""
+                    members_value = ""
+                else:
+                    team_value = st.session_state.get(f"team_name_{no}", "") or auto_team
+                    members_value = st.session_state.get(f"team_members_{no}", "") or auto_members
+                ws.cell(row=r, column=c, value=team_value); c += 1
+                ws.cell(row=r, column=c, value=members_value); c += 1
                 ws.cell(row=r, column=c, value=station["name"]); c += 1
                 acc_km = 0.0
                 for leg in rr["legs"]:
@@ -2789,7 +2795,6 @@ with page_build:
 
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
 
-        is_center_route = meta.get("purpose") == "⑤ 지리조사(센터용)"
         center_print_bytes = build_center_route_print_html(station, route_results, meta)
 
         # 공문서 작업과 현장 전달에 필요한 4개 자료를 하나의 ZIP으로 묶는다.
