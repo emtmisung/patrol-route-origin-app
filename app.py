@@ -908,6 +908,61 @@ def stop_label(name, address):
     return f"{name} ({address})"
 
 
+def build_distribution_map(coords_df, station=None):
+    """좌표검색에 성공한 전체 대상을 한 화면에 보여주는 분포지도."""
+    valid = coords_df.dropna(subset=["위도", "경도"]).copy()
+    if valid.empty:
+        return None
+
+    center_lat = float(valid["위도"].astype(float).mean())
+    center_lng = float(valid["경도"].astype(float).mean())
+    distribution_map = folium.Map(location=[center_lat, center_lng], zoom_start=12)
+    bounds = []
+
+    for row_index, row in valid.iterrows():
+        lat, lng = float(row["위도"]), float(row["경도"])
+        visit_no = int(row_index) + 1 if isinstance(row_index, (int, float)) else len(bounds) + 1
+        name = str(row.get("대상명", "")).strip()
+        address = str(row.get("주소", "")).strip()
+        bounds.append([lat, lng])
+        folium.Marker(
+            [lat, lng],
+            tooltip=f"{visit_no}. {name}",
+            popup=folium.Popup(html.escape(stop_label(name, address)), max_width=360),
+            icon=folium.DivIcon(
+                icon_size=(30, 30), icon_anchor=(15, 15),
+                html=(
+                    '<div style="background:#1f6fb2;color:#ffffff;'
+                    'width:26px;height:26px;border-radius:50%;border:2px solid #ffffff;'
+                    'box-shadow:0 1px 5px rgba(0,0,0,.45);display:flex;align-items:center;'
+                    'justify-content:center;font-family:sans-serif;font-weight:700;font-size:12px;'
+                    f'line-height:1;">{visit_no}</div>'
+                ),
+            ),
+        ).add_to(distribution_map)
+
+    if station and station.get("lat") is not None and station.get("lng") is not None:
+        station_lat, station_lng = float(station["lat"]), float(station["lng"])
+        bounds.append([station_lat, station_lng])
+        folium.Marker(
+            [station_lat, station_lng],
+            tooltip=f"출발부서: {station.get('name', '')}",
+            icon=folium.DivIcon(
+                icon_size=(66, 28), icon_anchor=(33, 14),
+                html=(
+                    '<div style="background:#a33a3f;color:#ffffff;padding:4px 9px;'
+                    'border-radius:14px;border:2px solid #ffffff;box-shadow:0 1px 5px rgba(0,0,0,.45);'
+                    'text-align:center;font-family:sans-serif;font-weight:700;font-size:12px;'
+                    'line-height:1.2;white-space:nowrap;">🚒 출발</div>'
+                ),
+            ),
+        ).add_to(distribution_map)
+
+    if len(bounds) > 1:
+        distribution_map.fit_bounds(bounds, padding=(30, 30))
+    return distribution_map
+
+
 def kakao_url(name, lat, lng):
     """카카오맵 길안내 링크 (공백·괄호가 있어도 깨지지 않도록 인코딩)."""
     return ("https://map.kakao.com/link/to/"
@@ -1722,8 +1777,24 @@ with page_basic:
                     st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
                 else:
                     st.success(f"✅ 좌표 확인 완료 · {len(saved_early)}건 모두 확인되었습니다.")
-                    with st.expander("🔎 좌표 검색 결과 보기", expanded=False):
-                        st.dataframe(saved_early, use_container_width=True, hide_index=True)
+
+                distribution_map = build_distribution_map(
+                    saved_early,
+                    {"name": station_name, "lat": station_lat, "lng": station_lng},
+                )
+                if distribution_map is not None:
+                    st.markdown("#### 🗺️ 전체 대상 분포지도")
+                    st.caption(
+                        f"좌표가 확인된 {len(saved_early)-fail_early}개소를 표시합니다. "
+                        "번호 표식에 마우스를 올리거나 누르면 대상물명과 주소를 확인할 수 있습니다."
+                    )
+                    st_folium(
+                        distribution_map, height=500, use_container_width=True,
+                        key=f"distribution_map_{hash(coord_signature)}",
+                    )
+
+                with st.expander("🔎 좌표 검색 결과 보기", expanded=False):
+                    st.dataframe(saved_early, use_container_width=True, hide_index=True)
 
     st.write("")
 
