@@ -33,7 +33,7 @@ APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
-API_CALL_LIMIT = 500      # 좌표검색과 노선계산을 합친 작업당 NCP 호출 상한
+API_CALL_LIMIT = 3000     # 좌표검색과 노선계산을 합친 작업당 NCP 호출 상한
 
 SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
 
