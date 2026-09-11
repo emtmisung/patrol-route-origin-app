@@ -242,6 +242,130 @@ def haversine_km(a, b):
 # ----------------------------------------------------------------------------
 HEADER_WORDS = re.compile(r"^(연번|no\.?|번호|구분|이름|명칭|대상명|대상명주소|주소|정제_주소|비고)$", re.I)
 
+NAME_HEADER_WORDS = ("대상물명", "대상명", "시설명", "명칭", "이름")
+ADDRESS_HEADER_WORDS = ("주소", "주소지", "소재지")
+SERIAL_HEADER_WORDS = ("연번", "순번", "번호", "no")
+
+
+def _header_text(value):
+    """헤더 비교용 문자열. 공백·줄바꿈·밑줄 차이는 무시한다."""
+    if pd.isna(value):
+        return ""
+    return re.sub(r"[\s_]", "", str(value)).lower()
+
+
+def _find_header_row(raw_df, scan_rows=20):
+    """제목행이 위에 있어도 대상명·주소가 있는 실제 헤더행을 찾는다."""
+    for row_idx in range(min(scan_rows, len(raw_df))):
+        tokens = [_header_text(v) for v in raw_df.iloc[row_idx].tolist()]
+        tokens = [v for v in tokens if v]
+        has_name = any(any(word in token for word in NAME_HEADER_WORDS) for token in tokens)
+        has_address = any(any(word in token for word in ADDRESS_HEADER_WORDS) for token in tokens)
+        has_serial = any(token in SERIAL_HEADER_WORDS for token in tokens)
+        if has_address and (has_name or has_serial):
+            return row_idx
+    return None
+
+
+def _looks_like_headerless_data(raw_df):
+    """항목명까지 지운 파일에서 첫 실제 대상을 헤더로 잃지 않도록 판별한다."""
+    if raw_df is None or raw_df.empty:
+        return False
+    values = [v for v in raw_df.iloc[0].tolist() if not pd.isna(v) and str(v).strip()]
+    if len(values) < 2:
+        return False
+    first = str(values[0]).strip()
+    if re.fullmatch(r"\d+(?:\.0)?", first):
+        return True
+    return any(re.search(r"(?:시|군|구|읍|면|동|리)\s*\S*\d", str(v)) for v in values)
+
+
+def _make_unique_headers(values):
+    headers, seen = [], {}
+    for idx, value in enumerate(values, start=1):
+        base = str(value).strip() if not pd.isna(value) and str(value).strip() else f"열{idx}"
+        seen[base] = seen.get(base, 0) + 1
+        headers.append(base if seen[base] == 1 else f"{base}_{seen[base]}")
+    return headers
+
+
+def normalize_uploaded_table(raw_df):
+    """제목행/헤더행/헤더 없는 목록을 모두 실제 대상 행 기준으로 정리한다."""
+    if raw_df is None or raw_df.empty:
+        return raw_df
+
+    raw_df = raw_df.dropna(how="all").dropna(axis=1, how="all").reset_index(drop=True)
+    header_row = _find_header_row(raw_df)
+    if header_row is not None:
+        df = raw_df.iloc[header_row + 1:].copy()
+        df.columns = _make_unique_headers(raw_df.iloc[header_row].tolist())
+    elif _looks_like_headerless_data(raw_df):
+        df = raw_df.copy()
+        width = len(df.columns)
+        first_value = str(df.iloc[0, 0]).strip() if width else ""
+        if width >= 3 and re.fullmatch(r"\d+(?:\.0)?", first_value):
+            defaults = ["연번", "대상명", "주소", "비고", "위도", "경도"]
+        else:
+            defaults = ["대상명", "주소", "비고", "위도", "경도"]
+        df.columns = defaults[:width] + [f"열{i}" for i in range(len(defaults) + 1, width + 1)]
+    else:
+        # 기존 방식과의 호환: 첫 행을 일반적인 열 이름으로 사용한다.
+        df = raw_df.iloc[1:].copy()
+        df.columns = _make_unique_headers(raw_df.iloc[0].tolist())
+
+    df = df.dropna(axis=1, how="all").dropna(how="all").reset_index(drop=True)
+    # 파일 중간에 항목명이 반복된 경우 대상 건수에서 제외한다.
+    repeated_headers = df.apply(
+        lambda row: _find_header_row(pd.DataFrame([row.tolist()]), scan_rows=1) == 0,
+        axis=1,
+    )
+    return df.loc[~repeated_headers].reset_index(drop=True)
+
+
+def read_uploaded_table(file_bytes, file_name):
+    """CSV/엑셀을 헤더 지정 없이 먼저 읽은 뒤 실제 헤더행을 자동 판별한다."""
+    source = io.BytesIO(file_bytes)
+    if file_name.lower().endswith(".csv"):
+        try:
+            raw_df = pd.read_csv(source, header=None)
+        except UnicodeDecodeError:
+            source.seek(0)
+            raw_df = pd.read_csv(source, header=None, encoding="cp949")
+    else:
+        raw_df = pd.read_excel(source, header=None)
+    return normalize_uploaded_table(raw_df)
+
+
+def find_name_column_index(columns):
+    """순번·연번 대신 실제 대상물명 열을 우선 선택한다."""
+    normalized = [_header_text(column) for column in columns]
+    for preferred in NAME_HEADER_WORDS:
+        for idx, token in enumerate(normalized):
+            if preferred in token:
+                return idx
+
+    excluded_words = ADDRESS_HEADER_WORDS + ("비고", "조별", "위도", "경도", "lat", "lng", "lon")
+    for idx, token in enumerate(normalized):
+        if token in SERIAL_HEADER_WORDS:
+            continue
+        if not any(word in token for word in excluded_words):
+            return idx
+    return 1 if len(columns) > 1 else 0
+
+
+def find_address_column_index(columns, name_index):
+    """대상명 열과 겹치지 않는 주소 열을 선택한다."""
+    normalized = [_header_text(column) for column in columns]
+    corrected = next((idx for idx, token in enumerate(normalized) if "정제" in token), None)
+    if corrected is not None and corrected != name_index:
+        return corrected
+    address = next(
+        (idx for idx, token in enumerate(normalized)
+         if idx != name_index and any(word in token for word in ADDRESS_HEADER_WORDS)),
+        None,
+    )
+    return address if address is not None else min(3, len(columns) - 1)
+
 
 def _clean_xml_text(s: str) -> str:
     s = re.sub(r"<[^>]+>", "", s)
@@ -1484,14 +1608,12 @@ with page_basic:
     df = None
     if uploaded is not None:
         name_lower = uploaded.name.lower()
-        if name_lower.endswith(".csv"):
-            df = pd.read_csv(uploaded)
-        elif name_lower.endswith(".hwpx"):
+        if name_lower.endswith(".hwpx"):
             df = parse_hwpx(uploaded.getvalue())
             if df is None:
                 st.error("hwpx 파일에서 표나 목록을 찾지 못했습니다. 표 형식인지 확인해주세요.")
         else:
-            df = pd.read_excel(uploaded)
+            df = read_uploaded_table(uploaded.getvalue(), uploaded.name)
     elif use_sample:
         df = pd.read_excel(SAMPLE_XLSX)
 
@@ -1541,12 +1663,8 @@ with page_basic:
 
     if df is not None and len(df):
         pre_cols = list(df.columns)
-        pre_name_idx = next((i for i, c in enumerate(pre_cols) if str(c) not in ("연번",) and
-                             ("주소지" in str(c) or "이름" in str(c) or "명" in str(c))),
-                            1 if len(pre_cols) > 1 else 0)
-        pre_addr_idx = next((i for i, c in enumerate(pre_cols) if "정제" in str(c)),
-                            next((i for i, c in enumerate(pre_cols) if "주소" in str(c) and i != pre_name_idx),
-                                 min(3, len(pre_cols) - 1)))
+        pre_name_idx = find_name_column_index(pre_cols)
+        pre_addr_idx = find_address_column_index(pre_cols, pre_name_idx)
         pre_lat = next((c for c in pre_cols if "위도" in str(c) or str(c).lower() == "lat"), None)
         pre_lng = next((c for c in pre_cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
         coord_signature = tuple((str(row[pre_cols[pre_name_idx]]), str(row[pre_cols[pre_addr_idx]]))
@@ -2176,19 +2294,8 @@ with page_build:
     # ----------------------------------------------------------------------------
     if df is not None and len(df):
         cols = list(df.columns)
-        name_col_guess_idx = next(
-            (i for i, c in enumerate(cols)
-             if str(c) not in ("연번",) and ("주소지" in str(c) or "이름" in str(c) or "명" in str(c))),
-            None,
-        )
-        if name_col_guess_idx is None:
-            name_col_guess_idx = 1 if len(cols) > 1 else 0
-        addr_col_guess_idx = next(
-            (i for i, c in enumerate(cols) if "정제" in str(c)),
-            next((i for i, c in enumerate(cols)
-                  if "주소" in str(c) and str(c) != str(cols[name_col_guess_idx])),
-                 min(3, len(cols) - 1)),
-        )
+        name_col_guess_idx = find_name_column_index(cols)
+        addr_col_guess_idx = find_address_column_index(cols, name_col_guess_idx)
 
         name_col = cols[name_col_guess_idx]
         addr_col = cols[addr_col_guess_idx]
