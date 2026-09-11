@@ -1501,7 +1501,9 @@ with page_basic:
         return ThreadPoolExecutor(max_workers=2, thread_name_prefix="paseru-coordinates")
 
 
-    def search_coordinates_in_background(records, name_key, address_key, lat_key=None, lng_key=None):
+    def search_coordinates_in_background(
+        records, name_key, address_key, lat_key=None, lng_key=None, sequence_key=None
+    ):
         rows = []
         api_calls = 0
 
@@ -1509,8 +1511,11 @@ with page_basic:
             nonlocal api_calls
             api_calls += 1
 
-        for record in records:
+        for row_index, record in enumerate(records, start=1):
             nm, ad = str(record.get(name_key, "")), str(record.get(address_key, ""))
+            sequence = record.get(sequence_key) if sequence_key else row_index
+            if pd.isna(sequence) or str(sequence).strip() == "":
+                sequence = row_index
             file_lat = file_lng = None
             if lat_key and lng_key:
                 try:
@@ -1520,7 +1525,8 @@ with page_basic:
                 except (TypeError, ValueError):
                     file_lat = file_lng = None
             if file_lat is not None:
-                rows.append({"대상명": nm, "주소": ad, "위도": file_lat, "경도": file_lng,
+                rows.append({"연번": sequence, "대상명": nm, "주소": ad,
+                             "위도": file_lat, "경도": file_lng,
                              "상태": "파일 좌표", "비고": "파일에 있던 좌표를 사용"})
                 continue
             lat, lng, used_q, used_why, tried = geocode_with_fallback(
@@ -1528,10 +1534,12 @@ with page_basic:
                 should_stop=lambda: api_calls >= API_CALL_LIMIT,
             )
             if lat is None:
-                rows.append({"대상명": nm, "주소": ad, "위도": None, "경도": None,
+                rows.append({"연번": sequence, "대상명": nm, "주소": ad,
+                             "위도": None, "경도": None,
                              "상태": "❌ 실패", "비고": "시도: " + " / ".join(tried)})
             else:
-                rows.append({"대상명": nm, "주소": ad, "위도": lat, "경도": lng,
+                rows.append({"연번": sequence, "대상명": nm, "주소": ad,
+                             "위도": lat, "경도": lng,
                              "상태": "✅ 확인" if used_why == "원본 주소" else "🔧 주소 보정 후 확인",
                              "비고": "" if used_why == "원본 주소" else f"{used_why} → {used_q}"})
         result = pd.DataFrame(rows)
@@ -1549,8 +1557,15 @@ with page_basic:
                                  min(3, len(pre_cols) - 1)))
         pre_lat = next((c for c in pre_cols if "위도" in str(c) or str(c).lower() == "lat"), None)
         pre_lng = next((c for c in pre_cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
-        coord_signature = tuple((str(row[pre_cols[pre_name_idx]]), str(row[pre_cols[pre_addr_idx]]))
-                                for _, row in df.iterrows())
+        pre_sequence = next((c for c in pre_cols if str(c).strip() == "연번"), None)
+        coord_signature = tuple(
+            (
+                str(row[pre_sequence]) if pre_sequence is not None else str(row_index + 1),
+                str(row[pre_cols[pre_name_idx]]),
+                str(row[pre_cols[pre_addr_idx]]),
+            )
+            for row_index, (_, row) in enumerate(df.iterrows())
+        )
         if st.session_state.get("coord_signature") != coord_signature:
             st.session_state["coord_signature"] = coord_signature
             st.session_state.pop("coords_df", None)
@@ -1569,6 +1584,7 @@ with page_basic:
                         st.session_state["coord_future"] = coordinate_executor().submit(
                             search_coordinates_in_background, df.to_dict("records"),
                             pre_cols[pre_name_idx], pre_cols[pre_addr_idx], pre_lat, pre_lng,
+                            pre_sequence,
                         )
                         st.rerun()
             elif coord_future is not None and not coord_future.done():
@@ -1604,8 +1620,76 @@ with page_basic:
                     st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
                 else:
                     st.success(f"✅ 좌표 확인 완료 · {len(saved_early)}건 모두 확인되었습니다.")
-                    with st.expander("🔎 좌표 검색 결과 보기", expanded=False):
-                        st.dataframe(saved_early, use_container_width=True, hide_index=True)
+
+                valid_locations = saved_early.dropna(subset=["위도", "경도"]).copy()
+                if not valid_locations.empty:
+                    st.markdown("### 🗺️ 전체 대상 지도 분포")
+                    st.caption(
+                        "좌표가 확인된 전체 대상을 원본 연번으로 표시합니다. "
+                        "번호가 겹치면 지도를 확대해 확인하세요. 순찰방식과 관계없이 항상 표시됩니다."
+                    )
+
+                    map_center = [
+                        float(valid_locations["위도"].mean()),
+                        float(valid_locations["경도"].mean()),
+                    ]
+                    distribution_map = folium.Map(
+                        location=map_center,
+                        zoom_start=12,
+                        control_scale=True,
+                    )
+                    map_bounds = []
+                    for fallback_no, (_, location) in enumerate(valid_locations.iterrows(), start=1):
+                        lat = float(location["위도"])
+                        lng = float(location["경도"])
+                        map_bounds.append([lat, lng])
+
+                        sequence = location.get("연번", fallback_no)
+                        if pd.isna(sequence) or str(sequence).strip() == "":
+                            sequence = fallback_no
+                        if isinstance(sequence, float) and sequence.is_integer():
+                            sequence = int(sequence)
+                        sequence_text = html.escape(str(sequence))
+                        name_text = html.escape(str(location.get("대상명", "")))
+                        address_text = html.escape(str(location.get("주소", "")))
+                        marker_width = max(32, min(54, 20 + len(sequence_text) * 8))
+
+                        popup_html = (
+                            f'<div style="min-width:210px;font-family:Arial,\'Noto Sans KR\',sans-serif;'
+                            f'line-height:1.55;"><b>{sequence_text}. {name_text}</b><br>{address_text}</div>'
+                        )
+                        folium.Marker(
+                            [lat, lng],
+                            tooltip=f"{sequence_text}. {name_text}",
+                            popup=folium.Popup(popup_html, max_width=340),
+                            icon=folium.DivIcon(
+                                icon_size=(marker_width, 34),
+                                icon_anchor=(marker_width // 2, 17),
+                                html=(
+                                    '<div style="background:#1f6fb2;color:#ffffff;'
+                                    f'width:{marker_width}px;height:32px;border-radius:16px;'
+                                    'border:2px solid #ffffff;box-shadow:0 1px 6px rgba(0,0,0,.48);'
+                                    'display:flex;align-items:center;justify-content:center;'
+                                    'font-family:Arial,sans-serif;font-weight:800;font-size:13px;'
+                                    f'line-height:1;white-space:nowrap;">{sequence_text}</div>'
+                                ),
+                            ),
+                        ).add_to(distribution_map)
+
+                    if len(map_bounds) > 1:
+                        distribution_map.fit_bounds(map_bounds, padding=(24, 24))
+                    else:
+                        distribution_map.location = map_bounds[0]
+
+                    st_folium(
+                        distribution_map,
+                        height=520,
+                        use_container_width=True,
+                        key="all_targets_distribution_map",
+                    )
+
+                with st.expander("🔎 좌표 검색 결과 보기", expanded=False):
+                    st.dataframe(saved_early, use_container_width=True, hide_index=True)
 
     st.write("")
 
@@ -2232,6 +2316,7 @@ with page_build:
                     coords_df, use_container_width=True, hide_index=True, num_rows="fixed",
                     key="coords_editor",
                     column_config={
+                        "연번": st.column_config.TextColumn(disabled=True, width="small"),
                         "대상명": st.column_config.TextColumn(disabled=True, width="medium"),
                         "주소": st.column_config.TextColumn(disabled=True, width="large"),
                         "위도": st.column_config.NumberColumn(format="%.6f", help="예: 35.919000"),
