@@ -9,7 +9,7 @@ import math
 import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, date, time as dtime, timedelta
+from datetime import datetime, date, time as dtime, timedelta, timezone
 from urllib.parse import quote
 
 import folium
@@ -38,8 +38,10 @@ ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보
 API_CALL_LIMIT = 3000     # 좌표검색과 노선계산을 합친 작업당 NCP 호출 상한
 
 SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
-BROWSER_DRAFT_KEY = "paseru_last_work_v1"
+BROWSER_DRAFT_LEGACY_KEY = "paseru_last_work_v1"
+BROWSER_DRAFT_KEY_PREFIX = "paseru_saved_work_v1_"
 BROWSER_DRAFT_DAYS = 7
+BROWSER_DRAFT_MAX_ITEMS = 3
 
 
 def ncp_headers():
@@ -93,11 +95,20 @@ def decode_browser_draft(raw_value):
         return None, "invalid"
 
 
-def browser_draft_content(patrol_title, station_query, station_result, targets_df, coords_df,
-                          coord_api_calls):
+def browser_work_key(source_name, targets_df):
+    """파일명과 대상목록으로 같은 작업을 계속 갱신할 저장 키를 만든다."""
+    identity = f"{source_name or '업로드 자료'}\n{dataframe_to_draft(targets_df) or ''}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
+    return f"{BROWSER_DRAFT_KEY_PREFIX}{digest}"
+
+
+def browser_draft_content(source_name, patrol_title, station_query, station_result, targets_df,
+                          coords_df, coord_api_calls):
     """변경 감지와 브라우저 저장에 사용할 최소 작업자료를 만든다."""
     return {
         "version": 1,
+        "source_name": str(source_name or "업로드 자료"),
+        "target_count": int(len(targets_df)) if targets_df is not None else 0,
         "patrol_title": str(patrol_title or ""),
         "station_query": str(station_query or ""),
         "station_result": station_result if isinstance(station_result, dict) else None,
@@ -105,6 +116,64 @@ def browser_draft_content(patrol_title, station_query, station_result, targets_d
         "coords": dataframe_to_draft(coords_df),
         "coord_api_calls": int(coord_api_calls or 0),
     }
+
+
+def browser_draft_label(payload):
+    """저장된 작업 선택 목록에 표시할 한 줄 설명을 만든다."""
+    source_name = payload.get("source_name") or payload.get("patrol_title") or "이전 저장자료"
+    target_count = int(payload.get("target_count") or len(payload.get("targets_df", [])))
+    try:
+        saved_at = datetime.fromtimestamp(
+            float(payload.get("saved_at", 0)), timezone.utc,
+        ).astimezone(timezone(timedelta(hours=9)))
+        saved_text = saved_at.strftime("%m월 %d일 %H:%M")
+    except (TypeError, ValueError, OSError):
+        saved_text = "저장시각 없음"
+    return f"{source_name} · 대상 {target_count}건 · {saved_text}"
+
+
+def apply_browser_draft(payload, storage_key):
+    """선택한 브라우저 저장 작업을 현재 세션으로 안전하게 전환한다."""
+    restored_targets = payload["targets_df"].copy()
+    st.session_state["browser_restored_df"] = restored_targets
+    st.session_state["patrol_title"] = payload.get("patrol_title") or ""
+    st.session_state["station_query"] = payload.get("station_query") or ""
+
+    restored_station = payload.get("station_result")
+    if isinstance(restored_station, dict):
+        st.session_state["station_search_result"] = restored_station
+    else:
+        st.session_state.pop("station_search_result", None)
+
+    restored_coords = payload.get("coords_df")
+    if restored_coords is not None:
+        st.session_state["coords_df"] = restored_coords.copy()
+    else:
+        st.session_state.pop("coords_df", None)
+    st.session_state.pop("coord_future", None)
+    st.session_state["coord_api_calls"] = int(payload.get("coord_api_calls", 0))
+
+    restored_columns = list(restored_targets.columns)
+    restored_name_idx = find_name_column_index(restored_columns)
+    restored_addr_idx = find_address_column_index(restored_columns, restored_name_idx)
+    st.session_state["coord_signature"] = tuple(
+        (str(row[restored_columns[restored_name_idx]]),
+         str(row[restored_columns[restored_addr_idx]]))
+        for _, row in restored_targets.iterrows()
+    )
+    for stale_key in ("station", "route_results", "far_points", "meta"):
+        st.session_state.pop(stale_key, None)
+
+    st.session_state["active_browser_draft_key"] = storage_key
+    st.session_state["browser_source_name"] = (
+        payload.get("source_name") or payload.get("patrol_title") or "이전 저장자료"
+    )
+    st.session_state["browser_draft_saving_enabled"] = True
+    st.session_state.pop("browser_draft_fingerprint", None)
+    st.session_state.pop("browser_upload_signature", None)
+    st.session_state["file_uploader_generation"] = (
+        int(st.session_state.get("file_uploader_generation", 0)) + 1
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -1550,39 +1619,80 @@ if not st.session_state.get("paseru_authenticated", False):
                 st.error("비밀번호가 올바르지 않습니다.")
     st.stop()
 
-# 마지막 작업은 서버가 아니라 현재 PC의 브라우저 저장소에만 7일간 보관한다.
+# 최근 작업은 서버가 아니라 현재 PC의 브라우저 저장소에만 7일간 보관한다.
 browser_storage = LocalStorage(key="paseru_browser_storage")
 if not st.session_state.get("browser_draft_loaded", False):
-    raw_browser_draft = browser_storage.getItem(BROWSER_DRAFT_KEY)
-    browser_draft, browser_draft_status = decode_browser_draft(raw_browser_draft)
-    if browser_draft_status == "expired":
-        browser_storage.eraseItem(BROWSER_DRAFT_KEY, key="erase_expired_paseru_draft")
-        st.session_state["browser_draft_loaded"] = True
-    elif browser_draft_status == "invalid":
-        browser_storage.eraseItem(BROWSER_DRAFT_KEY, key="erase_invalid_paseru_draft")
-        st.session_state["browser_draft_loaded"] = True
-    elif browser_draft_status == "ok":
-        restored_targets = browser_draft["targets_df"]
-        st.session_state["browser_restored_df"] = restored_targets
-        st.session_state["patrol_title"] = browser_draft.get("patrol_title") or ""
-        st.session_state["station_query"] = browser_draft.get("station_query") or ""
-        restored_station = browser_draft.get("station_result")
-        if isinstance(restored_station, dict):
-            st.session_state["station_search_result"] = restored_station
-        restored_coords = browser_draft.get("coords_df")
-        if restored_coords is not None:
-            st.session_state["coords_df"] = restored_coords
-        st.session_state["coord_api_calls"] = int(browser_draft.get("coord_api_calls", 0))
+    saved_drafts = []
+    storage_items = dict(browser_storage.getAll() or {})
+    relevant_items = [
+        (storage_key, raw_value)
+        for storage_key, raw_value in storage_items.items()
+        if storage_key.startswith(BROWSER_DRAFT_KEY_PREFIX)
+        or storage_key == BROWSER_DRAFT_LEGACY_KEY
+    ]
+    for storage_key, raw_value in relevant_items:
+        draft, draft_status = decode_browser_draft(raw_value)
+        if draft_status in ("expired", "invalid"):
+            browser_storage.eraseItem(
+                storage_key,
+                key=f"erase_{draft_status}_{hashlib.sha256(storage_key.encode()).hexdigest()[:12]}",
+            )
+            browser_storage.storedItems.pop(storage_key, None)
+            continue
+        if draft_status != "ok":
+            continue
 
-        restored_columns = list(restored_targets.columns)
-        restored_name_idx = find_name_column_index(restored_columns)
-        restored_addr_idx = find_address_column_index(restored_columns, restored_name_idx)
-        st.session_state["coord_signature"] = tuple(
-            (str(row[restored_columns[restored_name_idx]]),
-             str(row[restored_columns[restored_addr_idx]]))
-            for _, row in restored_targets.iterrows()
+        if storage_key == BROWSER_DRAFT_LEGACY_KEY:
+            draft["source_name"] = (
+                draft.get("source_name") or draft.get("patrol_title") or "이전 저장자료"
+            )
+            draft["target_count"] = int(len(draft["targets_df"]))
+            storage_key = browser_work_key(draft["source_name"], draft["targets_df"])
+            migrated_payload = {
+                key: value for key, value in draft.items()
+                if key not in ("targets_df", "coords_df")
+            }
+            browser_storage.setItem(
+                storage_key,
+                json.dumps(migrated_payload, ensure_ascii=False, default=str),
+                key=f"migrate_paseru_draft_{storage_key[-12:]}",
+            )
+            browser_storage.eraseItem(
+                BROWSER_DRAFT_LEGACY_KEY, key="erase_legacy_paseru_draft",
+            )
+            browser_storage.storedItems.pop(BROWSER_DRAFT_LEGACY_KEY, None)
+
+        draft["storage_key"] = storage_key
+        draft["source_name"] = (
+            draft.get("source_name") or draft.get("patrol_title") or "이전 저장자료"
         )
-        st.session_state["browser_draft_loaded"] = True
+        draft["target_count"] = int(draft.get("target_count") or len(draft["targets_df"]))
+        saved_drafts.append(draft)
+
+    saved_drafts.sort(key=lambda item: float(item.get("saved_at", 0)), reverse=True)
+    for old_draft in saved_drafts[BROWSER_DRAFT_MAX_ITEMS:]:
+        old_key = old_draft["storage_key"]
+        browser_storage.eraseItem(old_key, key=f"trim_old_paseru_draft_{old_key[-12:]}")
+        browser_storage.storedItems.pop(old_key, None)
+    st.session_state["browser_saved_drafts"] = saved_drafts[:BROWSER_DRAFT_MAX_ITEMS]
+    st.session_state["browser_draft_loaded"] = True
+    if saved_drafts:
+        newest_draft = saved_drafts[0]
+        apply_browser_draft(newest_draft, newest_draft["storage_key"])
+        st.session_state["browser_draft_restored_notice"] = True
+        st.rerun()
+
+pending_draft_key = st.session_state.pop("pending_browser_draft_key", None)
+if pending_draft_key:
+    pending_draft = next(
+        (
+            draft for draft in st.session_state.get("browser_saved_drafts", [])
+            if draft.get("storage_key") == pending_draft_key
+        ),
+        None,
+    )
+    if pending_draft:
+        apply_browser_draft(pending_draft, pending_draft_key)
         st.session_state["browser_draft_restored_notice"] = True
         st.rerun()
 
@@ -1591,9 +1701,12 @@ if "browser_draft_saving_enabled" not in st.session_state:
 
 if st.session_state.pop("browser_draft_restored_notice", False):
     st.success(
-        "✅ 이 PC에 저장된 마지막 작업을 복원했습니다. "
+        "✅ 이 PC에 저장된 작업을 복원했습니다. "
         "대상목록과 기존 좌표검색 결과를 다시 불러오지 않아도 됩니다."
     )
+
+if st.session_state.pop("browser_draft_deleted_notice", False):
+    st.success("✅ 선택한 저장 작업을 이 PC에서 삭제했습니다. 현재 화면의 작업은 유지됩니다.")
 
 with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설정하는 이유", expanded=False):
     st.markdown(
@@ -1801,16 +1914,57 @@ with page_basic:
                         border-left:6px solid #2f78a8;border-radius:10px;background:#edf7ff;
                         color:#173b56;line-height:1.6;box-shadow:0 2px 8px rgba(47,120,168,.08);">
               <div style="font-size:1.05rem;font-weight:800;margin-bottom:0.2rem;color:#195f8e;">
-                💾 가장 최근에 업로드한 자료를 7일간 보관합니다
+                💾 최근 작업을 최대 3개까지 각각 7일간 보관합니다
               </div>
               <div style="font-size:0.95rem;font-weight:600;color:#234b66;">
                 대상목록과 좌표검색 결과는 이 PC의 현재 브라우저에 임시저장됩니다.
-                새 파일을 업로드하면 이전 저장자료는 새 자료로 교체되며, 다른 PC·휴대폰에는 나타나지 않습니다.
+                4번째 자료를 올리면 가장 오래된 작업이 자동 삭제되며, 다른 PC·휴대폰에는 나타나지 않습니다.
               </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+        saved_drafts = st.session_state.get("browser_saved_drafts", [])
+        if saved_drafts:
+            drafts_by_key = {draft["storage_key"]: draft for draft in saved_drafts}
+            st.markdown("**저장된 작업 불러오기**")
+            selected_draft_key = st.selectbox(
+                "저장된 작업",
+                options=list(drafts_by_key),
+                format_func=lambda storage_key: browser_draft_label(drafts_by_key[storage_key]),
+                label_visibility="collapsed",
+                key="saved_browser_draft_selector",
+            )
+            load_col, delete_col = st.columns([2, 1])
+            with load_col:
+                if st.button(
+                    "📂 선택한 작업 불러오기", key="load_selected_browser_draft",
+                    use_container_width=True,
+                ):
+                    st.session_state["pending_browser_draft_key"] = selected_draft_key
+                    st.rerun()
+            with delete_col:
+                if st.button(
+                    "🗑️ 선택 삭제", key="delete_selected_browser_draft",
+                    use_container_width=True,
+                ):
+                    browser_storage.eraseItem(
+                        selected_draft_key,
+                        key=f"erase_selected_paseru_draft_{selected_draft_key[-12:]}",
+                    )
+                    browser_storage.storedItems.pop(selected_draft_key, None)
+                    st.session_state["browser_saved_drafts"] = [
+                        draft for draft in saved_drafts
+                        if draft.get("storage_key") != selected_draft_key
+                    ]
+                    if st.session_state.get("active_browser_draft_key") == selected_draft_key:
+                        st.session_state.pop("active_browser_draft_key", None)
+                        st.session_state["browser_draft_saving_enabled"] = False
+                        st.session_state.pop("browser_draft_fingerprint", None)
+                    st.session_state["browser_draft_deleted_notice"] = True
+                    st.rerun()
+
         template_col, template_note_col = st.columns([1, 2])
         with template_col:
             st.download_button(
@@ -1821,29 +1975,43 @@ with page_basic:
             )
         with template_note_col:
             st.caption("양식을 내려받아 노란색 `대상명·주소` 칸만 작성하세요. 개인정보와 민감정보는 입력하지 마세요.")
-        uploaded = st.file_uploader("대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
-                                    label_visibility="collapsed")
+        uploaded = st.file_uploader(
+            "대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
+            label_visibility="collapsed",
+            key=f"target_file_upload_{st.session_state.get('file_uploader_generation', 0)}",
+        )
         restored_df = st.session_state.get("browser_restored_df")
         if uploaded is None and restored_df is not None and len(restored_df):
             st.info(
                 f"💾 이 PC에 저장된 대상목록 {len(restored_df)}건을 사용하고 있습니다. "
-                "새 파일을 올리면 저장된 목록을 새 자료로 교체합니다."
+                "새 파일을 올리면 별도의 최근 작업으로 저장합니다."
             )
         use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
                                  value=(uploaded is None and restored_df is None))
 
     df = None
     if uploaded is not None:
+        uploaded_bytes = uploaded.getvalue()
         name_lower = uploaded.name.lower()
         if name_lower.endswith(".hwpx"):
-            df = parse_hwpx(uploaded.getvalue())
+            df = parse_hwpx(uploaded_bytes)
             if df is None:
                 st.error("hwpx 파일에서 표나 목록을 찾지 못했습니다. 표 형식인지 확인해주세요.")
         else:
-            df = read_uploaded_table(uploaded.getvalue(), uploaded.name)
+            df = read_uploaded_table(uploaded_bytes, uploaded.name)
         if df is not None:
             st.session_state["browser_restored_df"] = df.copy()
             st.session_state["browser_draft_saving_enabled"] = True
+            upload_signature = hashlib.sha256(
+                uploaded.name.encode("utf-8") + b"\0" + uploaded_bytes,
+            ).hexdigest()
+            if upload_signature != st.session_state.get("browser_upload_signature"):
+                st.session_state["browser_upload_signature"] = upload_signature
+                st.session_state["browser_source_name"] = uploaded.name
+                st.session_state["active_browser_draft_key"] = browser_work_key(uploaded.name, df)
+                st.session_state.pop("browser_draft_fingerprint", None)
+                for stale_key in ("station", "route_results", "far_points", "meta"):
+                    st.session_state.pop(stale_key, None)
     elif restored_df is not None and len(restored_df):
         df = restored_df.copy()
     elif use_sample:
@@ -2112,24 +2280,39 @@ with page_basic:
     if has_browser_work:
         with st.expander("💾 이 PC 자동저장 · 7일", expanded=False):
             st.caption(
-                "대상목록·출발부서·좌표검색 결과를 현재 PC의 이 브라우저에만 7일간 보관합니다. "
+                "최근 작업 최대 3개의 대상목록·출발부서·좌표검색 결과를 "
+                "현재 PC의 이 브라우저에만 각각 7일간 보관합니다. "
                 "다른 PC·휴대폰에는 나타나지 않으며 시크릿 모드나 브라우저 데이터 삭제 시 사라집니다."
             )
             if st.session_state.get("browser_draft_saving_enabled", True):
-                if st.button("🗑️ 이 PC의 저장자료 삭제", use_container_width=True):
+                active_draft_key = st.session_state.get("active_browser_draft_key")
+                if active_draft_key and st.button(
+                    "🗑️ 현재 작업의 자동저장 삭제", use_container_width=True,
+                ):
                     browser_storage.eraseItem(
-                        BROWSER_DRAFT_KEY,
-                        key=f"erase_paseru_draft_{datetime.now().timestamp()}",
+                        active_draft_key,
+                        key=f"erase_active_paseru_draft_{active_draft_key[-12:]}",
                     )
-                    browser_storage.storedItems.pop(BROWSER_DRAFT_KEY, None)
+                    browser_storage.storedItems.pop(active_draft_key, None)
+                    st.session_state["browser_saved_drafts"] = [
+                        draft for draft in st.session_state.get("browser_saved_drafts", [])
+                        if draft.get("storage_key") != active_draft_key
+                    ]
+                    st.session_state.pop("active_browser_draft_key", None)
                     st.session_state["browser_draft_saving_enabled"] = False
                     st.session_state.pop("browser_draft_fingerprint", None)
-                    st.success("이 PC에 저장된 복원용 자료를 삭제했습니다. 현재 화면의 작업은 유지됩니다.")
+                    st.success("현재 작업의 복원용 자료를 삭제했습니다. 현재 화면의 작업은 유지됩니다.")
             else:
                 st.info("이 PC의 자동저장을 중지했습니다. 새 파일을 업로드하면 다시 자동저장됩니다.")
 
         if st.session_state.get("browser_draft_saving_enabled", True):
+            source_name = st.session_state.get("browser_source_name") or "업로드 자료"
+            active_draft_key = st.session_state.get("active_browser_draft_key")
+            if not active_draft_key:
+                active_draft_key = browser_work_key(source_name, df)
+                st.session_state["active_browser_draft_key"] = active_draft_key
             current_draft_content = browser_draft_content(
+                source_name,
                 patrol_title,
                 station_query,
                 station_result,
@@ -2140,7 +2323,9 @@ with page_basic:
             fingerprint_source = json.dumps(
                 current_draft_content, ensure_ascii=False, sort_keys=True, default=str,
             )
-            draft_fingerprint = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+            draft_fingerprint = hashlib.sha256(
+                f"{active_draft_key}\n{fingerprint_source}".encode("utf-8"),
+            ).hexdigest()
             if draft_fingerprint != st.session_state.get("browser_draft_fingerprint"):
                 now_timestamp = datetime.now().timestamp()
                 browser_draft_payload = {
@@ -2151,17 +2336,61 @@ with page_basic:
                 serialized_draft = json.dumps(
                     browser_draft_payload, ensure_ascii=False, default=str,
                 )
-                if len(serialized_draft) <= 3_500_000:
+                current_saved_drafts = [
+                    draft for draft in st.session_state.get("browser_saved_drafts", [])
+                    if draft.get("storage_key") != active_draft_key
+                ]
+                oldest_draft = None
+                if len(current_saved_drafts) >= BROWSER_DRAFT_MAX_ITEMS:
+                    oldest_draft = min(
+                        current_saved_drafts,
+                        key=lambda item: float(item.get("saved_at", 0)),
+                    )
+                retained_keys = {
+                    draft["storage_key"] for draft in current_saved_drafts
+                    if oldest_draft is None or draft["storage_key"] != oldest_draft["storage_key"]
+                }
+                other_saved_size = sum(
+                    len(str(raw_value))
+                    for storage_key, raw_value in browser_storage.storedItems.items()
+                    if storage_key in retained_keys
+                )
+                if len(serialized_draft) + other_saved_size <= 4_000_000:
+                    if oldest_draft is not None:
+                        oldest_key = oldest_draft["storage_key"]
+                        browser_storage.eraseItem(
+                            oldest_key, key=f"erase_oldest_paseru_draft_{oldest_key[-12:]}",
+                        )
+                        browser_storage.storedItems.pop(oldest_key, None)
+                        current_saved_drafts = [
+                            draft for draft in current_saved_drafts
+                            if draft.get("storage_key") != oldest_key
+                        ]
                     browser_storage.setItem(
-                        BROWSER_DRAFT_KEY,
+                        active_draft_key,
                         serialized_draft,
                         key=f"save_paseru_draft_{draft_fingerprint[:16]}",
                     )
+                    session_draft = {
+                        **browser_draft_payload,
+                        "targets_df": df.copy(),
+                        "coords_df": (
+                            st.session_state["coords_df"].copy()
+                            if st.session_state.get("coords_df") is not None else None
+                        ),
+                        "storage_key": active_draft_key,
+                    }
+                    current_saved_drafts.append(session_draft)
+                    current_saved_drafts.sort(
+                        key=lambda item: float(item.get("saved_at", 0)), reverse=True,
+                    )
+                    st.session_state["browser_saved_drafts"] = current_saved_drafts
                     st.session_state["browser_draft_fingerprint"] = draft_fingerprint
                     st.session_state["browser_draft_loaded"] = True
                 else:
                     st.warning(
-                        "대상목록이 브라우저 자동저장 허용 크기를 초과했습니다. "
+                        "저장된 작업의 전체 크기가 브라우저 자동저장 허용 범위를 초과했습니다. "
+                        "기존 작업을 하나 삭제하거나 대상목록 크기를 줄여주세요. "
                         "현재 작업은 가능하지만 앱을 나가면 자동 복원되지 않을 수 있습니다."
                     )
 
