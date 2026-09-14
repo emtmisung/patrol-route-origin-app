@@ -1795,6 +1795,22 @@ with page_basic:
             """,
             unsafe_allow_html=True,
         )
+        st.markdown(
+            """
+            <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #76a9cf;
+                        border-left:6px solid #2f78a8;border-radius:10px;background:#edf7ff;
+                        color:#173b56;line-height:1.6;box-shadow:0 2px 8px rgba(47,120,168,.08);">
+              <div style="font-size:1.05rem;font-weight:800;margin-bottom:0.2rem;color:#195f8e;">
+                💾 가장 최근에 업로드한 자료를 7일간 보관합니다
+              </div>
+              <div style="font-size:0.95rem;font-weight:600;color:#234b66;">
+                대상목록과 좌표검색 결과는 이 PC의 현재 브라우저에 임시저장됩니다.
+                새 파일을 업로드하면 이전 저장자료는 새 자료로 교체되며, 다른 PC·휴대폰에는 나타나지 않습니다.
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         template_col, template_note_col = st.columns([1, 2])
         with template_col:
             st.download_button(
