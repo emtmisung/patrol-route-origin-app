@@ -2039,55 +2039,40 @@ with page_basic:
         route_prefix = station_name
 
         st.markdown("**대상 목록 업로드**")
-        st.markdown(
-            """
-            <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #d7a54a;
-                        border-left:5px solid #b7791f;border-radius:10px;background:#fff7e8;
-                        color:#5f3d0c;line-height:1.6;">
-              <div style="font-size:1.08rem;font-weight:750;margin-bottom:0.25rem;color:#744b0f;">
-                ⚠️ 개인정보가 포함된 파일은 업로드하지 마세요
-              </div>
-              <div style="font-size:0.96rem;font-weight:600;color:#5f3d0c;">
-                이 앱은 공개 앱입니다. 대상명과 주소만 입력하고, 개인 성명·담당자 실명·전화번호 등
-                개인정보와 민감정보는 파일에 포함하지 마세요.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            """
-            <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #76a9cf;
-                        border-left:6px solid #2f78a8;border-radius:10px;background:#edf7ff;
-                        color:#173b56;line-height:1.6;box-shadow:0 2px 8px rgba(47,120,168,.08);">
-              <div style="font-size:1.05rem;font-weight:800;margin-bottom:0.2rem;color:#195f8e;">
-                💾 최근 작업을 최대 3개까지 각각 7일간 보관합니다
-              </div>
-              <div style="font-size:0.95rem;font-weight:600;color:#234b66;">
-                대상목록과 좌표검색 결과는 이 PC의 현재 브라우저에 임시저장됩니다.
-                4번째 자료를 올리면 가장 오래된 작업이 자동 삭제되며, 다른 PC·휴대폰에는 나타나지 않습니다.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            """
-            <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #9b8bd1;
-                        border-left:6px solid #6750a4;border-radius:10px;background:#f6f2ff;
-                        color:#35275c;line-height:1.6;box-shadow:0 2px 8px rgba(103,80,164,.08);">
-              <div style="font-size:1.05rem;font-weight:800;margin-bottom:0.2rem;color:#503a8a;">
-                📱 PC 작업을 휴대폰에서 이어볼 수 있습니다
-              </div>
-              <div style="font-size:0.95rem;font-weight:600;color:#46366f;">
-                파일을 올린 뒤 아래의 <b>휴대폰으로 이어하기 QR 만들기</b>를 누르고 휴대폰으로 촬영하세요.
-                전달자료는 암호화해 최대 10분만 임시 보관하며, 한 번 가져오면 즉시 폐기됩니다.
-                휴대폰으로 가져온 작업은 그 휴대폰의 현재 브라우저에 7일간 자동 보관됩니다.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        notice_privacy, notice_storage, notice_mobile = st.columns(3, gap="small")
+        with notice_privacy:
+            st.markdown(
+                """
+                <div style="padding:0.72rem 0.82rem;border:1px solid #d7a54a;border-left:5px solid #b7791f;
+                            border-radius:9px;background:#fff7e8;min-height:76px;">
+                  <div style="font-size:1.08rem;font-weight:850;color:#744b0f;">⚠️ 개인정보 업로드 금지</div>
+                  <div style="margin-top:0.18rem;font-size:0.84rem;font-weight:650;color:#6b4610;">대상명·주소만 입력</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with notice_storage:
+            st.markdown(
+                """
+                <div style="padding:0.72rem 0.82rem;border:1px solid #76a9cf;border-left:5px solid #2f78a8;
+                            border-radius:9px;background:#edf7ff;min-height:76px;">
+                  <div style="font-size:1.08rem;font-weight:850;color:#195f8e;">💾 최근 파일 7일 보관</div>
+                  <div style="margin-top:0.18rem;font-size:0.84rem;font-weight:650;color:#234b66;">이 브라우저에 최대 3개</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with notice_mobile:
+            st.markdown(
+                """
+                <div style="padding:0.72rem 0.82rem;border:1px solid #9b8bd1;border-left:5px solid #6750a4;
+                            border-radius:9px;background:#f6f2ff;min-height:76px;">
+                  <div style="font-size:1.08rem;font-weight:850;color:#503a8a;">📱 휴대폰 이어하기</div>
+                  <div style="margin-top:0.18rem;font-size:0.84rem;font-weight:650;color:#46366f;">일회용 QR · 휴대폰 7일 보관</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
         if saved_drafts:
@@ -2174,6 +2159,10 @@ with page_basic:
                 st.session_state["browser_source_name"] = uploaded.name
                 st.session_state["active_browser_draft_key"] = browser_work_key(uploaded.name, df)
                 st.session_state.pop("browser_draft_fingerprint", None)
+                st.session_state.pop("coords_df", None)
+                st.session_state.pop("coord_future", None)
+                st.session_state.pop("coord_api_calls", None)
+                st.session_state.pop("coord_signature", None)
                 for stale_key in ("station", "route_results", "far_points", "meta"):
                     st.session_state.pop(stale_key, None)
     elif restored_df is not None and len(restored_df):
@@ -2181,18 +2170,19 @@ with page_basic:
     elif use_sample:
         df = pd.read_excel(SAMPLE_XLSX)
 
+    coordinate_panel = st
     if df is not None and len(df) and (
         uploaded is not None or st.session_state.get("browser_restored_df") is not None
     ):
-        with st.container(border=True):
+        coordinate_panel, mobile_panel = st.columns(2, gap="medium")
+        with mobile_panel.container(border=True):
             st.markdown("### 📱 휴대폰으로 이어하기")
             st.caption(
-                "대상목록·출발부서·좌표검색 결과를 일회용 QR로 전달합니다. "
-                "원본 엑셀 파일과 개인 성명·전화번호는 전달하지 마세요."
+                "대상목록·출발부서·좌표를 일회용 QR로 전달합니다."
             )
             coords_ready_for_transfer = st.session_state.get("coords_df") is not None
             if not coords_ready_for_transfer:
-                st.info("좌표 검색 전에도 목록을 보낼 수 있지만, 휴대폰에서 좌표를 다시 검색해야 합니다.")
+                st.caption("좌표 검색 후 QR 만들기를 권장합니다.")
             if st.button(
                 "📲 휴대폰으로 이어하기 QR 만들기",
                 type="primary",
@@ -2315,20 +2305,19 @@ with page_basic:
             st.session_state.pop("coord_future", None)
             st.session_state.pop("coord_api_calls", None)
 
-        with st.container(border=True):
+        with coordinate_panel.container(border=True):
             st.markdown("### 🔎 대상 좌표 우선 확인")
+            st.caption("업로드한 대상의 주소를 지도 좌표로 확인합니다.")
             coord_future = st.session_state.get("coord_future")
             saved_early = st.session_state.get("coords_df")
             if coord_future is None and saved_early is None:
-                coord_button_col, _, _ = st.columns(3)
-                with coord_button_col:
-                    if st.button("🔴 좌표 검색 시작", type="primary", use_container_width=True,
-                                 disabled=not has_keys()):
-                        st.session_state["coord_future"] = coordinate_executor().submit(
-                            search_coordinates_in_background, df.to_dict("records"),
-                            pre_cols[pre_name_idx], pre_cols[pre_addr_idx], pre_lat, pre_lng,
-                        )
-                        st.rerun()
+                if st.button("🔴 좌표 검색 시작", type="primary", use_container_width=True,
+                             disabled=not has_keys()):
+                    st.session_state["coord_future"] = coordinate_executor().submit(
+                        search_coordinates_in_background, df.to_dict("records"),
+                        pre_cols[pre_name_idx], pre_cols[pre_addr_idx], pre_lat, pre_lng,
+                    )
+                    st.rerun()
             elif coord_future is not None and not coord_future.done():
                 @st.fragment(run_every="1s")
                 def poll_coordinate_search():
