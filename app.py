@@ -1123,9 +1123,6 @@ div[data-testid="stAlert"]{
 .paseru-capacity-warning .warning-count{
   color:#a52d0b !important; font-size:18px; font-weight:900;
 }
-/* 예방검사는 일정 카드에서 노선 조건까지 자동 결정하므로 중복 상세설정은 숨긴다. */
-.st-key-inspect_route_settings_hidden,
-.st-key-hydrant_route_settings_hidden{ display:none !important; }
 .paseru-sub{ color:#22324a !important; }
 
 /* 완료된 핵심 작업은 기존 실행 버튼 자리에 초록색 상태 버튼처럼 표시 */
@@ -3109,164 +3106,55 @@ with page_details:
 
     st.write("")
 
-    # ----------------------------------------------------------------------------
-    # 4 · 노선 조건 설정
-    # ----------------------------------------------------------------------------
-    route_settings_key = ("inspect_route_settings_hidden" if purpose == "inspect" else
-                          "hydrant_route_settings_hidden" if purpose == "hydrant" else
-                          "route_settings_wrapper")
-    with st.container(key=route_settings_key), st.expander("💡 ④ 상세 노선 조건 보기", expanded=False):
-        card_title(2, "노선 조건 설정")
+    # 상세 노선 조건은 별도로 입력받지 않고, 위에서 선택한 순찰방법과 일정 조건으로
+    # 자동 결정한다. 화면에는 불필요한 설정 영역을 표시하지 않는다.
+    seg_max_km = seg_max_min = None
+    long_threshold = 99999.0
+    candidate_k = 5
 
-        if purpose == "season":
-            mode = "target_time"
-            target_min = int(season_target_min)
-            target_min_low = None
-            target_min_high = target_min
-            seg_max_km = seg_max_min = None
-            max_per_route = 100
-            max_routes_cap = 0
-            basis_label = "소요시간 기준"
-            basis = "time"
-            st.markdown("**계절순찰 자동 편성 기준**")
-            st.caption(
-                f"1회 최대 {target_min}분 · 관할 전체 대상을 코스별로 균등 순환합니다. "
-                f"{season_vehicle}의 센터 기준 {season_limit_basis} 제한값은 {season_oneway_limit:g}이며, "
-                f"이를 넘는 대상은 {season_delegate} 대상으로 분리해 안내합니다."
-            )
-        elif purpose == "hydrant":
-            mode = "target_time"
-            target_min = int(hydrant_target_min)
-            target_min_low = 60
-            target_min_high = int(hydrant_target_min)
-            seg_max_km = seg_max_min = None
-            max_per_route = 100
-            max_routes_cap = 0
-            basis_label = "소요시간 기준"
-            basis = "time"
-            st.markdown("**지리조사 자동 편성 기준**")
-            st.caption(
-                f"개인별 개수를 균등하게 배정한 뒤 같은 차량 팀원의 인접 구역을 묶고, "
-                f"센터 출발·복귀 포함 {target_min}분 이내 노선으로 나눕니다."
-            )
-        elif purpose == "other":
-            mode = "fixed"
-            target_min = None
-            target_min_low = target_min_high = None
-            seg_max_km = seg_max_min = None
-            max_per_route = 100
-            max_routes_cap = int(commander_route_count)
-            basis_label = "거리 기준"
-            basis = "distance"
-            st.markdown("**지휘관 현장방문 자동 편성 기준**")
-            st.caption(
-                f"전체 대상을 실제 도로거리상 가까운 권역끼리 묶어 {int(commander_route_count)}개 구역으로 나눕니다. "
-                f"출발부서 기준 편도 {int(commander_oneway_limit)}분 이내 대상을 우선 배정하고, "
-                f"각 방문지의 현장 대응시간 {int(commander_stop_min)}분을 포함해 구역별 총시간을 계산합니다."
-            )
-        elif purpose == "inspect":
-            mode = "fixed"
-            target_min = int(float(inspect_daily_hours) * 60)
-            target_min_low = None
-            target_min_high = target_min
-            seg_max_km = seg_max_min = None
-            max_per_route = int(inspect_targets_per_day)
-            max_routes_cap = len(inspect_dates) * int(inspect_teams)
-            basis_label = "검사일·팀별 대상 수 기준"
-            basis = "time"
-        else:
-            sub_label("가. 기준 방식")
-            mode_label = st.pills("기준 방식",
-                                  ["노선 수·구간 수 지정", "구간별 제한", "노선 전체 목표시간"],
-                                  default="노선 수·구간 수 지정", label_visibility="collapsed")
-            if not mode_label:
-                mode_label = "노선 수·구간 수 지정"
-            mode = {"노선 수·구간 수 지정": "fixed", "구간별 제한": "segment",
-                    "노선 전체 목표시간": "target_time"}[mode_label]
+    if purpose == "season":
+        mode = "target_time"
+        target_min = int(season_target_min)
+        target_min_high = target_min
+        max_per_route = 100
+        max_routes_cap = 0
+        basis_label = "소요시간 기준"
+        basis = "time"
+    elif purpose == "hydrant":
+        mode = "target_time"
+        target_min = int(hydrant_target_min)
+        target_min_high = target_min
+        max_per_route = 100
+        max_routes_cap = 0
+        basis_label = "소요시간 기준"
+        basis = "time"
+    elif purpose == "other":
+        mode = "fixed"
+        target_min = target_min_high = None
+        max_per_route = 100
+        max_routes_cap = int(commander_route_count)
+        basis_label = "거리 기준"
+        basis = "distance"
+    elif purpose == "inspect":
+        mode = "fixed"
+        target_min = int(float(inspect_daily_hours) * 60)
+        target_min_high = target_min
+        max_per_route = int(inspect_targets_per_day)
+        max_routes_cap = len(inspect_dates) * int(inspect_teams)
+        basis_label = "검사일·팀별 대상 수 기준"
+        basis = "time"
+    else:
+        # 특별경계근무는 가까운 대상부터 노선당 5개소씩 자동 편성한다.
+        mode = "fixed"
+        target_min = target_min_high = None
+        max_per_route = 5
+        max_routes_cap = 6
+        basis_label = "거리 기준"
+        basis = "distance"
+        long_threshold = 15.0
 
-            cc1, cc2 = st.columns(2)
-            with cc1:
-                max_per_route = st.number_input("노선 내 구간 수(방문지 수)", min_value=1, max_value=30, value=5)
-            with cc2:
-                max_routes_cap = st.number_input("총 노선 수 상한(0 = 전수 자동배분)", min_value=0, value=6)
-
-            if mode == "fixed":
-                st.caption(f"노선당 {max_per_route}개소씩 최대 {max_routes_cap or '제한 없이'}개 노선으로 나눕니다. "
-                           "거리·시간 제한 없이 개수대로 나눈 뒤, 아래 목표시간을 넘는 노선은 표시해 드립니다.")
-                target_min = st.number_input("참고용 목표 왕복시간(분) — 초과 노선을 표시만 합니다",
-                                             min_value=10, value=30)
-                target_min_low = target_min_high = None
-                seg_max_km = seg_max_min = None
-            elif mode == "segment":
-                sc1, sc2 = st.columns(2)
-                with sc1:
-                    seg_max_km = st.number_input("구간당 최대 거리(km)", min_value=1.0, value=7.0, step=0.5)
-                with sc2:
-                    seg_max_min = st.number_input("구간당 최대 시간(분)", min_value=1, value=10)
-                target_min = target_min_low = target_min_high = None
-            else:
-                sub_label("나. 순찰 소요시간(왕복 목표시간)")
-                quick_min = st.pills("목표 시간", ["30분", "1시간", "2시간", "직접입력"],
-                                     default="1시간", label_visibility="collapsed")
-                if quick_min == "30분":
-                    target_min = 30
-                elif quick_min == "2시간":
-                    target_min = 120
-                elif quick_min == "직접입력":
-                    target_min = st.number_input("목표 왕복시간(분)", min_value=10, value=90)
-                else:
-                    target_min = 60
-                allow_range = st.slider("허용 범위(분, ±)", 0, 60, 15)
-                target_min_low = target_min - allow_range
-                target_min_high = target_min + allow_range
-                seg_max_km = seg_max_min = None
-
-        if purpose not in ("hydrant", "season", "other", "inspect"):
-            sub_label("다. 노선 생성 기준")
-            basis_label = st.pills("노선 생성 기준", ["거리 기준", "소요시간 기준"],
-                                   default="거리 기준", label_visibility="collapsed")
-            if not basis_label:
-                basis_label = "거리 기준"
-            basis = "time" if basis_label == "소요시간 기준" else "distance"
-            st.caption("거리 기준: 이동 거리(km)가 가장 짧은 순서로 연결 / 소요시간 기준: 이동 시간(분)이 가장 짧은 순서로 연결")
-
-            sub_label("라. 장거리 분리 기준")
-            long_threshold = st.number_input("소방서 실제 도로거리(km) 초과 시 별도 표시", min_value=1.0, value=15.0)
-        elif purpose == "inspect":
-            long_threshold = 99999.0
-        elif purpose == "hydrant":
-            long_threshold = 99999.0
-            st.caption("월간 전수조사이므로 장거리 소화전도 분리하지 않고 반드시 차량·팀원에게 배정합니다.")
-        elif purpose == "season":
-            long_threshold = 99999.0
-            st.caption(
-                f"직선거리가 아닌 실제 도로의 {season_limit_basis} 기준으로 판단합니다. "
-                f"제한값 {season_oneway_limit:g} 초과 대상은 별도 검토 대상으로 표시합니다."
-            )
-        else:
-            long_threshold = 99999.0
-            st.caption("지휘관 현장방문은 편도 허용시간 이내 대상을 지휘관 수에 맞춰 권역별로 배정합니다.")
-
-        with st.expander("⚙️ 계산 과정·API 호출 설정 보기", expanded=False):
-            st.caption("기본값 그대로 사용해도 됩니다. 비용이나 계산 정밀도를 직접 조정할 때만 변경하세요.")
-            save_calls = st.checkbox(
-                "가까운 후보만 실제 도로거리로 확인하여 호출 절약 (권장)", value=True,
-                help="직선거리는 후보를 좁히는 데만 사용하며, 최종 노선은 실제 도로거리로 계산합니다. "
-                     "끄면 남은 모든 대상을 실제 도로거리로 확인해 호출 횟수가 크게 늘어납니다.",
-            )
-            if save_calls:
-                candidate_k = st.slider("실제 도로거리로 확인할 후보 수", 3, 12, 5,
-                                        help="숫자가 클수록 비교 후보는 많아지지만 API 호출도 늘어납니다.")
-            else:
-                candidate_k = 0
-
-            coord_api_calls = int(st.session_state.get("coord_api_calls", 0))
-            max_calls = max(0, API_CALL_LIMIT - coord_api_calls)
-            st.metric("노선 계산에 남은 API 호출", f"{max_calls:,}회")
-            st.caption(
-                f"작업당 총 {API_CALL_LIMIT:,}회로 자동 제한됩니다. "
-                f"좌표검색에서 {coord_api_calls:,}회를 사용했습니다."
-            )
+    coord_api_calls = int(st.session_state.get("coord_api_calls", 0))
+    max_calls = max(0, API_CALL_LIMIT - coord_api_calls)
 
     st.write("")
     next_tab_button("3단계로 이동", 2, enabled=True)
