@@ -2275,25 +2275,20 @@ with page_basic:
                     float(mobile_transfer_qr["expires_at"]) - datetime.now().timestamp()
                 )
                 if remaining_seconds > 0:
-                    qr_col, qr_guide_col = st.columns([1, 2])
-                    with qr_col:
-                        st.image(
-                            mobile_transfer_qr["png"],
-                            caption="휴대폰 카메라로 촬영",
-                            width=260,
-                        )
-                    with qr_guide_col:
-                        st.success("QR이 준비되었습니다. 지금 휴대폰으로 촬영하세요.")
-                        st.markdown(
-                            "1. 휴대폰 카메라로 QR 촬영  \n"
-                            "2. 파세루 앱 열기  \n"
-                            "3. 앱 비밀번호 입력  \n"
-                            "4. 작업 자동 가져오기"
-                        )
-                        st.warning(
-                            "이 QR은 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
-                            "가져온 뒤에는 휴대폰 브라우저에 7일간 보관됩니다."
-                        )
+                    st.success("QR이 준비되었습니다. 지금 휴대폰으로 촬영하세요.")
+                    st.image(
+                        mobile_transfer_qr["png"],
+                        caption="휴대폰 카메라로 QR 촬영",
+                        width=300,
+                    )
+                    st.markdown(
+                        "1. QR 촬영 · 파세루 앱 열기  \n"
+                        "2. 앱 비밀번호 입력 · 작업 자동 가져오기"
+                    )
+                    st.warning(
+                        "이 QR은 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
+                        "가져온 뒤에는 휴대폰 브라우저에 7일간 보관됩니다."
+                    )
                 else:
                     st.session_state.pop("mobile_transfer_qr", None)
                     st.warning("QR 유효시간 10분이 지났습니다. 새 QR을 만들어주세요.")
