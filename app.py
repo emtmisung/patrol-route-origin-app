@@ -587,6 +587,24 @@ def read_uploaded_table(file_bytes, file_name):
     return normalize_uploaded_table(raw_df)
 
 
+def load_sample_targets():
+    """예시 원본에서 업무 구분과 출발부서를 제외한 실제 대상 20곳만 만든다."""
+    sample_df = pd.read_excel(SAMPLE_XLSX)
+    required_columns = {"연번", "주소지", "정제_주소"}
+    if not required_columns.issubset(sample_df.columns):
+        return sample_df
+
+    sequence = pd.to_numeric(sample_df["연번"], errors="coerce")
+    targets = sample_df.loc[sequence > 0, ["주소지", "정제_주소"]].copy()
+    targets["대상명"] = (
+        targets["주소지"].fillna("").astype(str)
+        .str.replace(r"\s*\([^)]*\)\s*$", "", regex=True)
+        .str.strip()
+    )
+    targets["주소"] = targets["정제_주소"].fillna("").astype(str).str.strip()
+    return targets[["대상명", "주소"]].reset_index(drop=True)
+
+
 def find_name_column_index(columns):
     """순번·연번 대신 실제 대상물명 열을 우선 선택한다."""
     normalized = [_header_text(column) for column in columns]
@@ -2248,14 +2266,12 @@ with page_basic:
                 for stale_key in ("station", "route_results", "far_points", "meta"):
                     st.session_state.pop(stale_key, None)
     elif using_sample:
-        df = pd.read_excel(SAMPLE_XLSX)
+        df = load_sample_targets()
     elif restored_df is not None and len(restored_df):
         df = restored_df.copy()
 
     coordinate_panel = st
-    if df is not None and len(df) and (
-        uploaded is not None or st.session_state.get("browser_restored_df") is not None
-    ) and not using_sample:
+    if df is not None and len(df):
         coordinate_panel, mobile_panel = st.columns(2, gap="medium")
         with mobile_panel.container(border=True):
             st.markdown("### 📱 휴대폰으로 이어하기")
@@ -2274,7 +2290,11 @@ with page_basic:
                 now_timestamp = datetime.now().timestamp()
                 transfer_targets = minimum_transfer_targets(df)
                 transfer_content = browser_draft_content(
-                    st.session_state.get("browser_source_name") or "업로드 자료",
+                    (
+                        "기능 확인용 예시 20건"
+                        if using_sample
+                        else st.session_state.get("browser_source_name") or "업로드 자료"
+                    ),
                     patrol_title,
                     station_query,
                     station_result,
