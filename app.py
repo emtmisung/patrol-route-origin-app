@@ -2075,6 +2075,7 @@ with page_basic:
             )
 
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
+        selected_draft_key = None
         if saved_drafts:
             drafts_by_key = {draft["storage_key"]: draft for draft in saved_drafts}
             st.markdown("**저장된 작업 불러오기**")
@@ -2085,50 +2086,85 @@ with page_basic:
                 label_visibility="collapsed",
                 key="saved_browser_draft_selector",
             )
-            load_col, delete_col = st.columns([2, 1])
-            with load_col:
-                if st.button(
-                    "📂 선택한 작업 불러오기", key="load_selected_browser_draft",
-                    use_container_width=True,
-                ):
-                    st.session_state["pending_browser_draft_key"] = selected_draft_key
-                    st.rerun()
-            with delete_col:
-                if st.button(
-                    "🗑️ 선택 삭제", key="delete_selected_browser_draft",
-                    use_container_width=True,
-                ):
-                    browser_storage.eraseItem(
-                        selected_draft_key,
-                        key=f"erase_selected_paseru_draft_{selected_draft_key[-12:]}",
-                    )
-                    browser_storage.storedItems.pop(selected_draft_key, None)
-                    st.session_state["browser_saved_drafts"] = [
-                        draft for draft in saved_drafts
-                        if draft.get("storage_key") != selected_draft_key
-                    ]
-                    if st.session_state.get("active_browser_draft_key") == selected_draft_key:
-                        st.session_state.pop("active_browser_draft_key", None)
-                        st.session_state["browser_draft_saving_enabled"] = False
-                        st.session_state.pop("browser_draft_fingerprint", None)
-                    st.session_state["browser_draft_deleted_notice"] = True
-                    st.rerun()
+        else:
+            st.selectbox(
+                "저장된 작업",
+                options=["저장된 작업이 없습니다"],
+                disabled=True,
+                label_visibility="collapsed",
+                key="empty_saved_browser_draft_selector",
+            )
 
-        template_col, template_note_col = st.columns([1, 2])
+        st.markdown(
+            """
+            <style>
+              [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] {
+                padding:0!important; min-height:3rem!important; border:0!important; background:transparent!important;
+              }
+              [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzoneInstructions"],
+              [class*="st-key-target_file_upload_"] small {display:none!important;}
+              [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] button {
+                width:100%!important; min-height:3rem!important; margin:0!important;
+                border:1px solid #a9343a!important; border-radius:10px!important;
+                background:#c2474d!important; color:#fff!important; font-size:0!important;
+                font-weight:800!important;
+              }
+              [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] button::after {
+                content:"📤 대상 목록 업로드"; font-size:0.96rem!important; color:#fff!important;
+              }
+              .st-key-download_blank_target_template button {
+                min-height:3rem!important; border:1px solid #1f7447!important;
+                background:#238553!important; color:#fff!important; font-weight:800!important;
+              }
+              .st-key-load_selected_browser_draft button,
+              .st-key-delete_selected_browser_draft button {min-height:3rem!important; font-weight:750!important;}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        upload_col, template_col, load_col, delete_col = st.columns([3, 3, 2, 2], gap="small")
+        with upload_col:
+            uploaded = st.file_uploader(
+                "대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
+                label_visibility="collapsed",
+                key=f"target_file_upload_{st.session_state.get('file_uploader_generation', 0)}",
+            )
         with template_col:
             st.download_button(
                 "📥 대상 목록 빈 양식(xlsx)", data=build_upload_template(),
                 file_name="파세루_대상목록_빈양식.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
+                key="download_blank_target_template",
             )
-        with template_note_col:
-            st.caption("양식을 내려받아 노란색 `대상명·주소` 칸만 작성하세요. 개인정보와 민감정보는 입력하지 마세요.")
-        uploaded = st.file_uploader(
-            "대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
-            label_visibility="collapsed",
-            key=f"target_file_upload_{st.session_state.get('file_uploader_generation', 0)}",
-        )
+        with load_col:
+            if st.button(
+                "📂 선택 작업 불러오기", key="load_selected_browser_draft",
+                use_container_width=True, disabled=selected_draft_key is None,
+            ):
+                st.session_state["pending_browser_draft_key"] = selected_draft_key
+                st.rerun()
+        with delete_col:
+            if st.button(
+                "🗑️ 선택 삭제", key="delete_selected_browser_draft",
+                use_container_width=True, disabled=selected_draft_key is None,
+            ):
+                browser_storage.eraseItem(
+                    selected_draft_key,
+                    key=f"erase_selected_paseru_draft_{selected_draft_key[-12:]}",
+                )
+                browser_storage.storedItems.pop(selected_draft_key, None)
+                st.session_state["browser_saved_drafts"] = [
+                    draft for draft in saved_drafts
+                    if draft.get("storage_key") != selected_draft_key
+                ]
+                if st.session_state.get("active_browser_draft_key") == selected_draft_key:
+                    st.session_state.pop("active_browser_draft_key", None)
+                    st.session_state["browser_draft_saving_enabled"] = False
+                    st.session_state.pop("browser_draft_fingerprint", None)
+                st.session_state["browser_draft_deleted_notice"] = True
+                st.rerun()
+
         restored_df = st.session_state.get("browser_restored_df")
         if uploaded is None and restored_df is not None and len(restored_df):
             st.info(
@@ -2182,12 +2218,13 @@ with page_basic:
             )
             coords_ready_for_transfer = st.session_state.get("coords_df") is not None
             if not coords_ready_for_transfer:
-                st.caption("좌표 검색 후 QR 만들기를 권장합니다.")
+                st.caption("좌표 검색을 완료해야 휴대폰으로 이어갈 수 있습니다.")
             if st.button(
                 "📲 휴대폰으로 이어하기 QR 만들기",
                 type="primary",
                 use_container_width=True,
                 key="create_mobile_transfer_qr",
+                disabled=not coords_ready_for_transfer,
             ):
                 now_timestamp = datetime.now().timestamp()
                 transfer_targets = minimum_transfer_targets(df)
@@ -2506,33 +2543,6 @@ with page_basic:
         and (uploaded is not None or st.session_state.get("browser_restored_df") is not None)
     )
     if has_browser_work:
-        with st.expander("💾 이 PC 자동저장 · 7일", expanded=False):
-            st.caption(
-                "최근 작업 최대 3개의 대상목록·출발부서·좌표검색 결과를 "
-                "현재 PC의 이 브라우저에만 각각 7일간 보관합니다. "
-                "다른 PC·휴대폰에는 나타나지 않으며 시크릿 모드나 브라우저 데이터 삭제 시 사라집니다."
-            )
-            if st.session_state.get("browser_draft_saving_enabled", True):
-                active_draft_key = st.session_state.get("active_browser_draft_key")
-                if active_draft_key and st.button(
-                    "🗑️ 현재 작업의 자동저장 삭제", use_container_width=True,
-                ):
-                    browser_storage.eraseItem(
-                        active_draft_key,
-                        key=f"erase_active_paseru_draft_{active_draft_key[-12:]}",
-                    )
-                    browser_storage.storedItems.pop(active_draft_key, None)
-                    st.session_state["browser_saved_drafts"] = [
-                        draft for draft in st.session_state.get("browser_saved_drafts", [])
-                        if draft.get("storage_key") != active_draft_key
-                    ]
-                    st.session_state.pop("active_browser_draft_key", None)
-                    st.session_state["browser_draft_saving_enabled"] = False
-                    st.session_state.pop("browser_draft_fingerprint", None)
-                    st.success("현재 작업의 복원용 자료를 삭제했습니다. 현재 화면의 작업은 유지됩니다.")
-            else:
-                st.info("이 PC의 자동저장을 중지했습니다. 새 파일을 업로드하면 다시 자동저장됩니다.")
-
         if st.session_state.get("browser_draft_saving_enabled", True):
             source_name = st.session_state.get("browser_source_name") or "업로드 자료"
             active_draft_key = st.session_state.get("active_browser_draft_key")
