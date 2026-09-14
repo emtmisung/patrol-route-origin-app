@@ -196,6 +196,20 @@ def geocode_with_fallback(address: str, name: str = "", on_call=None, should_sto
     return None, None, None, None, tried
 
 
+def geocode_failure_reason(tried):
+    """좌표 검색 시도내역을 사용자가 이해하기 쉬운 실패 사유로 바꾼다."""
+    details = " / ".join(tried or [])
+    if "API 호출 한도 도달" in details:
+        return "API 호출 한도에 도달해 검색이 중단되었습니다."
+    if "HTTP 429" in details:
+        return "지도 API의 일시적인 호출 제한에 도달했습니다."
+    if "error:" in details:
+        return "지도 API 연결 중 오류가 발생했습니다. 잠시 후 다시 검색해 주세요."
+    if "not_found" in details:
+        return "입력 주소와 보정 주소를 지도에서 찾지 못했습니다. 주소를 확인해 주세요."
+    return "주소를 확인하지 못했습니다. 주소를 수정해 다시 검색해 주세요."
+
+
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
 def road_route(o_lat, o_lng, d_lat, d_lng):
     """실도로 거리(km)/시간(분)/경로좌표 반환. 실패 시 None 튜플."""
@@ -1710,7 +1724,8 @@ with page_basic:
             )
             if lat is None:
                 rows.append({"대상명": nm, "주소": ad, "위도": None, "경도": None,
-                             "상태": "❌ 실패", "비고": "시도: " + " / ".join(tried)})
+                             "상태": "❌ 실패",
+                             "비고": geocode_failure_reason(tried) + " | 시도: " + " / ".join(tried)})
             else:
                 rows.append({"대상명": nm, "주소": ad, "위도": lat, "경도": lng,
                              "상태": "✅ 확인" if used_why == "원본 주소" else "🔧 주소 보정 후 확인",
@@ -1779,8 +1794,106 @@ with page_basic:
                 fail_early = int(saved_early["위도"].isna().sum())
                 if fail_early:
                     st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
+
+                    st.markdown("#### 🔁 좌표 실패건 다시 검색")
+                    st.caption(
+                        "실패 사유를 확인하고 `재검색 주소`를 정확한 도로명주소나 지번주소로 고친 뒤 "
+                        "아래 버튼을 누르세요. 성공한 대상은 그대로 두고 실패건만 다시 검색합니다."
+                    )
+                    failed_indexes = saved_early.index[saved_early["위도"].isna()].tolist()
+                    retry_table = saved_early.loc[failed_indexes, ["대상명", "주소", "비고"]].copy()
+                    retry_table.insert(0, "원본행", failed_indexes)
+                    retry_table.insert(3, "재검색 주소", retry_table["주소"])
+                    retry_table = retry_table.rename(columns={"비고": "실패 사유·시도내역"})
+
+                    edited_retry = st.data_editor(
+                        retry_table,
+                        use_container_width=True,
+                        hide_index=True,
+                        num_rows="fixed",
+                        key=f"retry_address_editor_{hash(coord_signature)}",
+                        column_config={
+                            "원본행": None,
+                            "대상명": st.column_config.TextColumn(disabled=True, width="medium"),
+                            "주소": st.column_config.TextColumn("기존 주소", disabled=True, width="large"),
+                            "재검색 주소": st.column_config.TextColumn(
+                                required=True, width="large",
+                                help="정확한 도로명주소 또는 지번주소로 수정하세요.",
+                            ),
+                            "실패 사유·시도내역": st.column_config.TextColumn(
+                                disabled=True, width="large",
+                            ),
+                        },
+                    )
+
+                    used_coord_calls = int(st.session_state.get("coord_api_calls", 0))
+                    remaining_coord_calls = max(0, API_CALL_LIMIT - used_coord_calls)
+                    if remaining_coord_calls == 0:
+                        st.error("API 호출 한도에 도달했습니다. 새 작업으로 다시 시작해 주세요.")
+
+                    if st.button(
+                        f"🔁 실패 {fail_early}건 좌표 재검색",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=(not has_keys() or remaining_coord_calls == 0),
+                    ):
+                        updated_coords = saved_early.copy()
+                        retry_counter = {"calls": 0}
+                        retry_success = 0
+
+                        def count_retry_call():
+                            retry_counter["calls"] += 1
+
+                        with st.spinner("실패건의 주소를 다시 검색하고 있습니다..."):
+                            for _, retry_row in edited_retry.iterrows():
+                                original_index = int(retry_row["원본행"])
+                                retry_address = str(retry_row.get("재검색 주소", "")).strip()
+                                target_name = str(retry_row.get("대상명", "")).strip()
+                                if not retry_address or retry_address.lower() == "nan":
+                                    updated_coords.at[original_index, "비고"] = (
+                                        "재검색 주소가 비어 있어 검색하지 않았습니다."
+                                    )
+                                    continue
+
+                                lat, lng, used_q, used_why, tried = geocode_with_fallback(
+                                    retry_address,
+                                    target_name,
+                                    on_call=count_retry_call,
+                                    should_stop=lambda: (
+                                        used_coord_calls + retry_counter["calls"] >= API_CALL_LIMIT
+                                    ),
+                                )
+                                updated_coords.at[original_index, "주소"] = retry_address
+                                if lat is None:
+                                    updated_coords.at[original_index, "상태"] = "❌ 재검색 실패"
+                                    updated_coords.at[original_index, "비고"] = (
+                                        geocode_failure_reason(tried) + " | 시도: " + " / ".join(tried)
+                                    )
+                                else:
+                                    updated_coords.at[original_index, "위도"] = lat
+                                    updated_coords.at[original_index, "경도"] = lng
+                                    updated_coords.at[original_index, "상태"] = "✅ 재검색 성공"
+                                    updated_coords.at[original_index, "비고"] = (
+                                        "재검색 주소로 확인" if used_why == "원본 주소"
+                                        else f"{used_why} → {used_q}"
+                                    )
+                                    retry_success += 1
+
+                        total_coord_calls = used_coord_calls + retry_counter["calls"]
+                        updated_coords.attrs["api_calls_used"] = total_coord_calls
+                        st.session_state["coords_df"] = updated_coords
+                        st.session_state["coord_api_calls"] = total_coord_calls
+                        st.session_state["coord_retry_message"] = (
+                            f"재검색 완료 · 성공 {retry_success}건 · "
+                            f"실패 {len(edited_retry) - retry_success}건"
+                        )
+                        st.rerun()
                 else:
                     st.success(f"✅ 좌표 확인 완료 · {len(saved_early)}건 모두 확인되었습니다.")
+
+                retry_message = st.session_state.pop("coord_retry_message", None)
+                if retry_message:
+                    st.success(f"✅ {retry_message}")
 
                 distribution_map = build_distribution_map(
                     saved_early,
