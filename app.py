@@ -854,6 +854,20 @@ div[data-testid="stAlert"]{
   display:block; margin-bottom:3px; font-size:16px; font-weight:800;
   color:#9a4700 !important;
 }
+.paseru-capacity-warning{
+  border:2px solid #e05a16; border-left:9px solid #c93f12;
+  background:#fff0dc;
+  box-shadow:0 4px 12px rgba(201,63,18,.18);
+}
+.paseru-capacity-warning .warning-icon{
+  color:#c93f12 !important; font-size:38px;
+}
+.paseru-capacity-warning .warning-title{
+  color:#a52d0b !important; font-size:17px;
+}
+.paseru-capacity-warning .warning-count{
+  color:#a52d0b !important; font-size:18px; font-weight:900;
+}
 /* 예방검사는 일정 카드에서 노선 조건까지 자동 결정하므로 중복 상세설정은 숨긴다. */
 .st-key-inspect_route_settings_hidden,
 .st-key-hydrant_route_settings_hidden{ display:none !important; }
@@ -1345,13 +1359,27 @@ def sub_label(text):
     st.markdown(f'<div class="paseru-sub">{text}</div>', unsafe_allow_html=True)
 
 
-def safety_warning(text):
+def safety_warning(text, title="주의 · 활용 범위 안내"):
     """재난대응 활용범위를 일반 안내와 구분해 보여주는 전용 경고 상자."""
     st.markdown(
         '<div class="paseru-safety-warning">'
         '<div class="warning-icon" aria-hidden="true">⚠</div>'
-        '<div class="warning-body"><span class="warning-title">주의 · 활용 범위 안내</span>'
+        f'<div class="warning-body"><span class="warning-title">{html.escape(title)}</span>'
         f'{html.escape(text)}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def inspection_capacity_warning(capacity_formula, total_targets, omitted_targets):
+    """예방검사 처리용량 부족을 성공 안내와 확실히 구분해 표시한다."""
+    st.markdown(
+        '<div class="paseru-safety-warning paseru-capacity-warning">'
+        '<div class="warning-icon" aria-hidden="true">⚠</div>'
+        '<div class="warning-body"><span class="warning-title">검사기간 내 미완료 예상</span>'
+        f'{html.escape(capacity_formula)}<br>'
+        f'전체 {int(total_targets)}개소 중 '
+        f'<span class="warning-count">{int(omitted_targets)}개소 누락 예정</span>입니다.<br>'
+        '검사 대상 수 또는 검사일수를 조정하세요.</div></div>',
         unsafe_allow_html=True,
     )
 
@@ -1795,15 +1823,21 @@ with page_basic:
                 if fail_early:
                     st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
 
-                    st.markdown("#### 🔁 좌표 실패건 다시 검색")
+                    st.markdown("#### 🔁 좌표 실패건 처리")
                     st.caption(
-                        "실패 사유를 확인하고 `재검색 주소`를 정확한 도로명주소나 지번주소로 고친 뒤 "
-                        "아래 버튼을 누르세요. 성공한 대상은 그대로 두고 실패건만 다시 검색합니다."
+                        "실패건마다 처리 방법을 선택하세요. 주소를 바로잡아 다시 검색하거나, "
+                        "전체 대상에서 제외하거나, 실제 위치와 가까운 대체주소로 좌표를 검색할 수 있습니다."
                     )
+                    retry_actions = [
+                        "주소를 변경해서 재검색",
+                        "전체 대상에서 제외",
+                        "인근 대체주소를 넣어 재검색",
+                    ]
                     failed_indexes = saved_early.index[saved_early["위도"].isna()].tolist()
                     retry_table = saved_early.loc[failed_indexes, ["대상명", "주소", "비고"]].copy()
                     retry_table.insert(0, "원본행", failed_indexes)
-                    retry_table.insert(3, "재검색 주소", retry_table["주소"])
+                    retry_table.insert(3, "처리 방법", retry_actions[0])
+                    retry_table.insert(4, "재검색 주소", retry_table["주소"])
                     retry_table = retry_table.rename(columns={"비고": "실패 사유·시도내역"})
 
                     edited_retry = st.data_editor(
@@ -1816,9 +1850,14 @@ with page_basic:
                             "원본행": None,
                             "대상명": st.column_config.TextColumn(disabled=True, width="medium"),
                             "주소": st.column_config.TextColumn("기존 주소", disabled=True, width="large"),
+                            "처리 방법": st.column_config.SelectboxColumn(
+                                options=retry_actions, required=True, width="medium",
+                                help="실패한 대상을 어떻게 처리할지 선택하세요.",
+                            ),
                             "재검색 주소": st.column_config.TextColumn(
-                                required=True, width="large",
-                                help="정확한 도로명주소 또는 지번주소로 수정하세요.",
+                                width="large",
+                                help=("주소 변경 또는 인근 대체주소를 선택한 경우 정확한 도로명주소나 "
+                                      "지번주소를 입력하세요. 제외를 선택하면 이 칸은 사용하지 않습니다."),
                             ),
                             "실패 사유·시도내역": st.column_config.TextColumn(
                                 disabled=True, width="large",
@@ -1829,17 +1868,21 @@ with page_basic:
                     used_coord_calls = int(st.session_state.get("coord_api_calls", 0))
                     remaining_coord_calls = max(0, API_CALL_LIMIT - used_coord_calls)
                     if remaining_coord_calls == 0:
-                        st.error("API 호출 한도에 도달했습니다. 새 작업으로 다시 시작해 주세요.")
+                        st.warning(
+                            "API 호출 한도에 도달해 주소 재검색은 할 수 없습니다. "
+                            "전체 대상에서 제외는 적용할 수 있습니다."
+                        )
 
                     if st.button(
-                        f"🔁 실패 {fail_early}건 좌표 재검색",
+                        f"✅ 실패 {fail_early}건 선택사항 적용",
                         type="primary",
                         use_container_width=True,
-                        disabled=(not has_keys() or remaining_coord_calls == 0),
                     ):
                         updated_coords = saved_early.copy()
                         retry_counter = {"calls": 0}
                         retry_success = 0
+                        retry_excluded = 0
+                        exclude_indexes = []
 
                         def count_retry_call():
                             retry_counter["calls"] += 1
@@ -1847,11 +1890,18 @@ with page_basic:
                         with st.spinner("실패건의 주소를 다시 검색하고 있습니다..."):
                             for _, retry_row in edited_retry.iterrows():
                                 original_index = int(retry_row["원본행"])
+                                retry_action = str(retry_row.get("처리 방법", retry_actions[0])).strip()
                                 retry_address = str(retry_row.get("재검색 주소", "")).strip()
                                 target_name = str(retry_row.get("대상명", "")).strip()
+
+                                if retry_action == "전체 대상에서 제외":
+                                    exclude_indexes.append(original_index)
+                                    retry_excluded += 1
+                                    continue
+
                                 if not retry_address or retry_address.lower() == "nan":
                                     updated_coords.at[original_index, "비고"] = (
-                                        "재검색 주소가 비어 있어 검색하지 않았습니다."
+                                        "재검색 주소가 비어 있어 처리하지 않았습니다."
                                     )
                                     continue
 
@@ -1872,20 +1922,31 @@ with page_basic:
                                 else:
                                     updated_coords.at[original_index, "위도"] = lat
                                     updated_coords.at[original_index, "경도"] = lng
-                                    updated_coords.at[original_index, "상태"] = "✅ 재검색 성공"
-                                    updated_coords.at[original_index, "비고"] = (
-                                        "재검색 주소로 확인" if used_why == "원본 주소"
-                                        else f"{used_why} → {used_q}"
-                                    )
+                                    old_address = str(saved_early.at[original_index, "주소"])
+                                    if retry_action == "인근 대체주소를 넣어 재검색":
+                                        updated_coords.at[original_index, "상태"] = "📍 인근 대체주소 좌표"
+                                        updated_coords.at[original_index, "비고"] = (
+                                            f"실제 대상의 원주소: {old_address} | "
+                                            f"좌표 검색에 사용한 인근 대체주소: {retry_address}"
+                                        )
+                                    else:
+                                        updated_coords.at[original_index, "상태"] = "✅ 주소 변경 후 확인"
+                                        updated_coords.at[original_index, "비고"] = (
+                                            f"기존 주소: {old_address} → 변경 주소: {retry_address}"
+                                            + ("" if used_why == "원본 주소" else f" | {used_why} → {used_q}")
+                                        )
                                     retry_success += 1
 
+                        if exclude_indexes:
+                            updated_coords = updated_coords.drop(index=exclude_indexes).reset_index(drop=True)
                         total_coord_calls = used_coord_calls + retry_counter["calls"]
                         updated_coords.attrs["api_calls_used"] = total_coord_calls
                         st.session_state["coords_df"] = updated_coords
                         st.session_state["coord_api_calls"] = total_coord_calls
                         st.session_state["coord_retry_message"] = (
                             f"재검색 완료 · 성공 {retry_success}건 · "
-                            f"실패 {len(edited_retry) - retry_success}건"
+                            f"대상 제외 {retry_excluded}건 · "
+                            f"미처리·실패 {len(edited_retry) - retry_success - retry_excluded}건"
                         )
                         st.rerun()
                 else:
@@ -2533,8 +2594,11 @@ with page_build:
                 k3.metric("좌표 없음", f"{fail_n}")
 
                 if fail_n:
-                    st.error(f"❌ {fail_n}건은 좌표를 찾지 못했습니다. 아래 표의 **위도·경도 칸에 직접 입력**하시면 "
-                             "노선 생성에 포함됩니다. (네이버·카카오 지도에서 해당 지점을 찍고 좌표를 확인해 넣으시면 됩니다.)")
+                    st.error(
+                        f"❌ {fail_n}건은 좌표를 찾지 못했습니다. 1단계의 **좌표 실패건 처리**에서 "
+                        "주소 변경 재검색·대상 제외·인근 대체주소 재검색 중 하나를 선택하거나, "
+                        "아래 표의 위도·경도 칸에 직접 입력하세요."
+                    )
                 else:
                     st.success("✅ 모든 대상의 좌표가 확보되었습니다. 아래에서 노선을 생성하세요.")
 
@@ -2571,7 +2635,11 @@ with page_build:
             else:
                 est_calls = n_ready * (n_ready + 1) // 2 + n_ready
             if n_ready < len(edited):
-                st.warning(f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다.")
+                safety_warning(
+                    f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다. "
+                    "1단계의 좌표 실패건 처리에서 재검색하거나 제외 여부를 선택하세요.",
+                    title="좌표 없는 대상 안내",
+                )
 
             if purpose == "inspect":
                 inspect_capacity = (
@@ -2583,10 +2651,10 @@ with page_build:
                     f"팀당 하루 {int(inspect_targets_per_day)}개소 = 최대 {inspect_capacity}개소"
                 )
                 if inspect_omitted_count:
-                    st.warning(
-                        f"⚠️ {capacity_formula}까지 검사할 수 있어, 전체 {n_ready}개소 중 "
-                        f"{inspect_omitted_count}개소가 누락될 예정입니다. "
-                        "검사 대상 수 또는 검사일수를 조정하세요."
+                    inspection_capacity_warning(
+                        capacity_formula,
+                        n_ready,
+                        inspect_omitted_count,
                     )
                 elif inspect_capacity:
                     st.success(f"✅ {capacity_formula} · 전체 {n_ready}개소를 기간 안에 검사할 수 있습니다.")
@@ -2797,10 +2865,11 @@ with page_build:
             team_info = (f" · 검사 가능일 {len(inspect_dates)}일 · {inspect_teams}팀"
                          f" · 팀당 하루 최대 {int(inspect_targets_per_day)}개소")
             if inspect_omitted_points:
-                st.warning(
-                    f"⚠️ 설정 조건으로는 최대 {inspect_capacity}개소까지 편성할 수 있어, "
-                    f"전체 {len(points)}개소 중 {len(inspect_omitted_points)}개소가 누락되었습니다. "
-                    "검사 대상 수 또는 검사일수를 조정하세요."
+                inspection_capacity_warning(
+                    (f"검사 가능일 {len(inspect_dates)}일 × {int(inspect_teams)}팀 × "
+                     f"팀당 하루 {int(inspect_targets_per_day)}개소 = 최대 {inspect_capacity}개소"),
+                    len(points),
+                    len(inspect_omitted_points),
                 )
             else:
                 st.success(
