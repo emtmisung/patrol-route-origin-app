@@ -2043,41 +2043,6 @@ with page_basic:
         route_prefix = station_name
 
         st.markdown("**대상 목록 업로드**")
-        notice_privacy, notice_storage, notice_mobile = st.columns(3, gap="small")
-        with notice_privacy:
-            st.markdown(
-                """
-                <div style="padding:0.72rem 0.82rem;border:1px solid #d7a54a;border-left:5px solid #b7791f;
-                            border-radius:9px;background:#fff7e8;min-height:76px;">
-                  <div style="font-size:1.08rem;font-weight:850;color:#744b0f;">⚠️ 개인정보 업로드 금지</div>
-                  <div style="margin-top:0.18rem;font-size:0.84rem;font-weight:650;color:#6b4610;">대상명·주소만 입력</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with notice_storage:
-            st.markdown(
-                """
-                <div style="padding:0.72rem 0.82rem;border:1px solid #76a9cf;border-left:5px solid #2f78a8;
-                            border-radius:9px;background:#edf7ff;min-height:76px;">
-                  <div style="font-size:1.08rem;font-weight:850;color:#195f8e;">💾 최근 파일 7일 보관</div>
-                  <div style="margin-top:0.18rem;font-size:0.84rem;font-weight:650;color:#234b66;">이 브라우저에 최대 3개</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with notice_mobile:
-            st.markdown(
-                """
-                <div style="padding:0.72rem 0.82rem;border:1px solid #9b8bd1;border-left:5px solid #6750a4;
-                            border-radius:9px;background:#f6f2ff;min-height:76px;">
-                  <div style="font-size:1.08rem;font-weight:850;color:#503a8a;">📱 휴대폰 이어하기</div>
-                  <div style="margin-top:0.18rem;font-size:0.84rem;font-weight:650;color:#46366f;">일회용 QR · 휴대폰 7일 보관</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
         selected_draft_key = None
         if saved_drafts:
@@ -2107,12 +2072,12 @@ with page_basic:
                 opacity:1!important; background:#ffffff!important;
               }
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] {
-                padding:0!important; min-height:3rem!important; border:0!important; background:transparent!important;
+                padding:0!important; min-height:4.5rem!important; border:0!important; background:transparent!important;
               }
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzoneInstructions"],
               [class*="st-key-target_file_upload_"] small {display:none!important;}
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] button {
-                width:100%!important; height:3rem!important; min-height:3rem!important;
+                width:100%!important; height:4.5rem!important; min-height:4.5rem!important;
                 padding:0!important; margin:0!important;
                 border:1px solid #a9343a!important; border-radius:10px!important;
                 background:#c2474d!important; color:#fff!important; font-size:0!important;
@@ -2125,7 +2090,7 @@ with page_basic:
                 content:"📤 대상 목록 업로드"; font-size:0.96rem!important; color:#fff!important;
               }
               .st-key-download_blank_target_template button {
-                height:3rem!important; min-height:3rem!important; padding:0!important;
+                height:4.5rem!important; min-height:4.5rem!important; padding:0!important;
                 border:1px solid #75b58d!important; background:#e8f5ed!important;
                 color:#111827!important; -webkit-text-fill-color:#111827!important;
                 font-size:0!important; font-weight:800!important; opacity:1!important;
@@ -2143,7 +2108,7 @@ with page_basic:
               }
               .st-key-load_selected_browser_draft button,
               .st-key-delete_selected_browser_draft button {
-                height:3rem!important; min-height:3rem!important; padding:0!important; font-weight:750!important;
+                height:4.5rem!important; min-height:4.5rem!important; padding:0!important; font-weight:750!important;
               }
             </style>
             """,
@@ -2201,6 +2166,41 @@ with page_basic:
                     )
                 st.session_state["browser_draft_deleted_notice"] = True
                 st.rerun()
+
+        notice_privacy, notice_storage, notice_mobile = st.columns(3, gap="small")
+        with notice_privacy:
+            st.markdown(
+                """
+                <div style="padding:0.38rem 0.62rem;border:1px solid #d7a54a;border-left:4px solid #b7791f;
+                            border-radius:8px;background:#fff7e8;min-height:52px;">
+                  <div style="font-size:0.94rem;font-weight:850;color:#744b0f;">⚠️ 개인정보 업로드 금지</div>
+                  <div style="font-size:0.76rem;font-weight:650;color:#6b4610;">대상명·주소만 입력</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with notice_storage:
+            st.markdown(
+                """
+                <div style="padding:0.38rem 0.62rem;border:1px solid #76a9cf;border-left:4px solid #2f78a8;
+                            border-radius:8px;background:#edf7ff;min-height:52px;">
+                  <div style="font-size:0.94rem;font-weight:850;color:#195f8e;">💾 최근 파일 7일 보관</div>
+                  <div style="font-size:0.76rem;font-weight:650;color:#234b66;">이 브라우저에 최대 3개</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with notice_mobile:
+            st.markdown(
+                """
+                <div style="padding:0.38rem 0.62rem;border:1px solid #9b8bd1;border-left:4px solid #6750a4;
+                            border-radius:8px;background:#f6f2ff;min-height:52px;">
+                  <div style="font-size:0.94rem;font-weight:850;color:#503a8a;">📱 휴대폰 이어하기</div>
+                  <div style="font-size:0.76rem;font-weight:650;color:#46366f;">일회용 QR · 휴대폰 7일 보관</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         restored_df = st.session_state.get("browser_restored_df")
         use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
