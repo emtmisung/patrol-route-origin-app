@@ -1853,7 +1853,7 @@ if st.session_state.pop("browser_draft_mobile_imported_notice", False):
     )
 
 if st.session_state.pop("browser_draft_deleted_notice", False):
-    st.success("✅ 선택한 저장 작업을 이 PC에서 삭제했습니다. 현재 화면의 작업은 유지됩니다.")
+    st.success("✅ 선택한 저장 작업을 이 PC에서 삭제했습니다.")
 
 with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설정하는 이유", expanded=False):
     st.markdown(
@@ -2001,6 +2001,8 @@ with page_basic:
         if station_query != st.session_state.get("station_query"):
             st.session_state["station_query"] = station_query
             st.session_state.pop("station_search_result", None)
+            for stale_key in ("station", "route_results", "far_points", "meta"):
+                st.session_state.pop(stale_key, None)
 
         with station_search_col:
             st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
@@ -2016,6 +2018,8 @@ with page_basic:
                     "name": found_name, "address": found_address,
                     "lat": found_lat, "lng": found_lng,
                 }
+                for stale_key in ("station", "route_results", "far_points", "meta"):
+                    st.session_state.pop(stale_key, None)
             else:
                 st.session_state.pop("station_search_result", None)
                 st.warning(search_status)
@@ -2185,17 +2189,36 @@ with page_basic:
                     st.session_state.pop("active_browser_draft_key", None)
                     st.session_state["browser_draft_saving_enabled"] = False
                     st.session_state.pop("browser_draft_fingerprint", None)
+                    for active_key in (
+                        "browser_restored_df", "browser_source_name", "browser_upload_signature",
+                        "coords_df", "coord_future", "coord_api_calls", "coord_signature",
+                        "mobile_transfer_qr", "station", "route_results", "far_points", "meta",
+                    ):
+                        st.session_state.pop(active_key, None)
+                    st.session_state["sample_mode_active"] = False
+                    st.session_state["file_uploader_generation"] = (
+                        st.session_state.get("file_uploader_generation", 0) + 1
+                    )
                 st.session_state["browser_draft_deleted_notice"] = True
                 st.rerun()
 
         restored_df = st.session_state.get("browser_restored_df")
-        if uploaded is None and restored_df is not None and len(restored_df):
+        use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
+                                 value=(uploaded is None and restored_df is None))
+        if uploaded is None and not use_sample and restored_df is not None and len(restored_df):
             st.info(
                 f"💾 이 PC에 저장된 대상목록 {len(restored_df)}건을 사용하고 있습니다. "
                 "새 파일을 올리면 별도의 최근 작업으로 저장합니다."
             )
-        use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
-                                 value=(uploaded is None and restored_df is None))
+
+    using_sample = uploaded is None and bool(use_sample)
+    if using_sample != st.session_state.get("sample_mode_active", False):
+        for stale_key in (
+            "coords_df", "coord_future", "coord_api_calls", "coord_signature",
+            "mobile_transfer_qr", "station", "route_results", "far_points", "meta",
+        ):
+            st.session_state.pop(stale_key, None)
+        st.session_state["sample_mode_active"] = using_sample
 
     df = None
     if uploaded is not None:
@@ -2224,15 +2247,15 @@ with page_basic:
                 st.session_state.pop("coord_signature", None)
                 for stale_key in ("station", "route_results", "far_points", "meta"):
                     st.session_state.pop(stale_key, None)
+    elif using_sample:
+        df = pd.read_excel(SAMPLE_XLSX)
     elif restored_df is not None and len(restored_df):
         df = restored_df.copy()
-    elif use_sample:
-        df = pd.read_excel(SAMPLE_XLSX)
 
     coordinate_panel = st
     if df is not None and len(df) and (
         uploaded is not None or st.session_state.get("browser_restored_df") is not None
-    ):
+    ) and not using_sample:
         coordinate_panel, mobile_panel = st.columns(2, gap="medium")
         with mobile_panel.container(border=True):
             st.markdown("### 📱 휴대폰으로 이어하기")
@@ -2402,6 +2425,23 @@ with page_basic:
                     st.error(f"⚠️ 좌표 검색 중 오류가 발생했습니다: {type(exc).__name__}")
             else:
                 fail_early = int(saved_early["위도"].isna().sum())
+                if st.button(
+                    "🔄 대상 좌표 다시 검색",
+                    type="secondary",
+                    use_container_width=True,
+                    key="restart_coordinate_search_btn",
+                    disabled=not has_keys(),
+                ):
+                    for stale_key in (
+                        "coords_df", "coord_api_calls", "mobile_transfer_qr",
+                        "station", "route_results", "far_points", "meta",
+                    ):
+                        st.session_state.pop(stale_key, None)
+                    st.session_state["coord_future"] = coordinate_executor().submit(
+                        search_coordinates_in_background, df.to_dict("records"),
+                        pre_cols[pre_name_idx], pre_cols[pre_addr_idx], pre_lat, pre_lng,
+                    )
+                    st.rerun()
                 if fail_early:
                     st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
 
@@ -2559,6 +2599,7 @@ with page_basic:
     has_browser_work = (
         df is not None and len(df)
         and (uploaded is not None or st.session_state.get("browser_restored_df") is not None)
+        and not using_sample
     )
     if has_browser_work:
         if st.session_state.get("browser_draft_saving_enabled", True):
