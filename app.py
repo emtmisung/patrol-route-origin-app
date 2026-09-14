@@ -2104,20 +2104,30 @@ with page_basic:
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzoneInstructions"],
               [class*="st-key-target_file_upload_"] small {display:none!important;}
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] button {
-                width:100%!important; min-height:3rem!important; margin:0!important;
+                width:100%!important; height:3rem!important; min-height:3rem!important;
+                padding:0!important; margin:0!important;
                 border:1px solid #a9343a!important; border-radius:10px!important;
                 background:#c2474d!important; color:#fff!important; font-size:0!important;
                 font-weight:800!important;
+              }
+              [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] button > * {
+                display:none!important;
               }
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] button::after {
                 content:"📤 대상 목록 업로드"; font-size:0.96rem!important; color:#fff!important;
               }
               .st-key-download_blank_target_template button {
-                min-height:3rem!important; border:1px solid #1f7447!important;
-                background:#238553!important; color:#fff!important; font-weight:800!important;
+                height:3rem!important; min-height:3rem!important; padding:0!important;
+                border:1px solid #75b58d!important; background:#e8f5ed!important;
+                color:#17633b!important; font-weight:800!important;
+              }
+              .st-key-download_blank_target_template button:hover {
+                border-color:#4e9a6b!important; background:#d9efE2!important; color:#125432!important;
               }
               .st-key-load_selected_browser_draft button,
-              .st-key-delete_selected_browser_draft button {min-height:3rem!important; font-weight:750!important;}
+              .st-key-delete_selected_browser_draft button {
+                height:3rem!important; min-height:3rem!important; padding:0!important; font-weight:750!important;
+              }
             </style>
             """,
             unsafe_allow_html=True,
@@ -2217,8 +2227,7 @@ with page_basic:
                 "대상목록·출발부서·좌표를 일회용 QR로 전달합니다."
             )
             coords_ready_for_transfer = st.session_state.get("coords_df") is not None
-            if not coords_ready_for_transfer:
-                st.caption("좌표 검색을 완료해야 휴대폰으로 이어갈 수 있습니다.")
+            st.caption("좌표 검색 완료 후 사용할 수 있습니다.")
             if st.button(
                 "📲 휴대폰으로 이어하기 QR 만들기",
                 type="primary",
@@ -2345,6 +2354,7 @@ with page_basic:
         with coordinate_panel.container(border=True):
             st.markdown("### 🔎 대상 좌표 우선 확인")
             st.caption("업로드한 대상의 주소를 지도 좌표로 확인합니다.")
+            st.caption("노선 생성 전 좌표 검색을 먼저 완료하세요.")
             coord_future = st.session_state.get("coord_future")
             saved_early = st.session_state.get("coords_df")
             if coord_future is None and saved_early is None:
