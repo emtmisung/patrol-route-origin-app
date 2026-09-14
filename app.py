@@ -439,7 +439,8 @@ def nearest_by_straight_line(cur, candidates, k):
 
 def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
                  target_min_high, max_routes_cap, basis="distance", on_call=None,
-                 candidate_k=5, should_stop=None, service_min_per_stop=0):
+                 candidate_k=5, should_stop=None, service_min_per_stop=0,
+                 strict_route_cap=False):
     """points: list of dict(name, address, lat, lng)
     반환: routes(list of list of point dict), unassigned(장거리/미배정)
 
@@ -451,6 +452,8 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
     candidate_k: 다음 지점 후보를 직선거리로 몇 개까지 좁혀서 실제 API로 확인할지 (0=전수)
     should_stop: 호출 한도 초과 등으로 중단해야 하는지 판단하는 함수.
                  중단되면 그때까지 편성된 노선만 반환한다(진행분 보존).
+    strict_route_cap: 노선 수 상한에 도달했을 때 남은 대상을 마지막 노선에
+                      합치지 않고 미배정으로 반환한다.
     """
     remaining = points[:]
     routes = []
@@ -505,10 +508,11 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
         routes.append(route)
 
         if max_routes_cap and len(routes) >= max_routes_cap and remaining:
-            # 노선 수 상한 도달 -> 남은 지점은 마지막 노선에 최대한 이어붙임(완화)
-            for p in remaining[:]:
-                route.append(p)
-                remaining.remove(p)
+            if not strict_route_cap:
+                # 일반 순찰은 기존 동작 유지: 남은 지점을 마지막 노선에 이어붙인다.
+                for p in remaining[:]:
+                    route.append(p)
+                    remaining.remove(p)
             break
 
     return routes, remaining
@@ -2002,14 +2006,19 @@ with page_details:
                 help="실제로 예방검사를 실시할 요일만 선택하세요.",
             )
 
-            ic3, ic4, ic5 = st.columns(3)
+            ic3, ic4, ic5, ic6 = st.columns(4)
             with ic3:
                 inspect_teams = st.number_input("검사팀 수", min_value=1, max_value=30, value=1)
             with ic4:
+                inspect_targets_per_day = st.number_input(
+                    "팀당 하루 검사 대상 수", min_value=1, max_value=100, value=2, step=1,
+                    help="한 팀이 하루에 방문할 수 있는 최대 대상 수입니다.",
+                )
+            with ic5:
                 inspect_daily_hours = st.number_input(
                     "팀당 하루 검사 가능시간", min_value=1.0, max_value=12.0, value=6.0, step=0.5,
                 )
-            with ic5:
+            with ic6:
                 inspect_minutes = st.number_input(
                     "대상당 평균 검사시간(분)", min_value=5, max_value=480, value=40, step=5,
                 )
@@ -2045,14 +2054,17 @@ with page_details:
                     current_date += timedelta(days=1)
 
             period_days = max(1, len(inspect_dates))
+            inspect_capacity = (
+                len(inspect_dates) * int(inspect_teams) * int(inspect_targets_per_day)
+            )
             st.caption(
                 f"실제 검사 가능일 {len(inspect_dates)}일 · 전체 가용 팀 일수 "
-                f"{len(inspect_dates) * int(inspect_teams)}팀 일"
+                f"{len(inspect_dates) * int(inspect_teams)}팀 일 · 최대 검사 가능 {inspect_capacity}개소"
             )
             vehicle = ""
             st.info(
-                f"전체 대상을 제외 없이 포함하여 {int(inspect_teams)}개 팀에 배정하고, "
-                f"팀당 하루 {inspect_daily_hours:g}시간과 대상당 평균 {int(inspect_minutes)}분을 기준으로 "
+                f"{int(inspect_teams)}개 팀에 팀당 하루 최대 {int(inspect_targets_per_day)}개소씩 배정하고, "
+                f"하루 {inspect_daily_hours:g}시간과 대상당 평균 {int(inspect_minutes)}분을 기준으로 "
                 "일정과 노선을 자동 편성합니다."
             )
         elif purpose == "season":
@@ -2089,6 +2101,8 @@ with page_details:
             inspect_teams = 1
             inspect_daily_hours = 6.0
             inspect_minutes = 40
+            inspect_targets_per_day = 2
+            inspect_capacity = 0
             inspect_dates = []
             st.caption("입력한 조건은 좌표 검색 결과와 결합한 뒤 3단계 노선 생성·결과에서 확인합니다.")
         elif purpose == "hydrant":
@@ -2125,6 +2139,8 @@ with page_details:
             inspect_teams = 1
             inspect_daily_hours = 6.0
             inspect_minutes = 40
+            inspect_targets_per_day = 2
+            inspect_capacity = 0
             inspect_dates = []
             st.caption(
                 f"기본 {int(hydrant_target_min)}분 이내로 편성하고, 차량별 노선이 "
@@ -2142,6 +2158,8 @@ with page_details:
             inspect_teams = 1
             inspect_daily_hours = 6.0
             inspect_minutes = 40
+            inspect_targets_per_day = 2
+            inspect_capacity = 0
             inspect_dates = []
             st.caption(
                 f"지휘관 {int(commander_count)}명 기준 자동 분할 · 편도 {int(commander_oneway_limit)}분 이내 · "
@@ -2153,6 +2171,8 @@ with page_details:
             inspect_teams = 1
             inspect_daily_hours = 6.0
             inspect_minutes = 40
+            inspect_targets_per_day = 2
+            inspect_capacity = 0
             inspect_dates = []
 
             dc1, dc2, dc3, dc4 = st.columns(4)
@@ -2234,14 +2254,14 @@ with page_details:
                 f"각 방문지의 현장 대응시간 {int(commander_stop_min)}분을 포함해 구역별 총시간을 계산합니다."
             )
         elif purpose == "inspect":
-            mode = "target_time"
+            mode = "fixed"
             target_min = int(float(inspect_daily_hours) * 60)
             target_min_low = None
             target_min_high = target_min
             seg_max_km = seg_max_min = None
-            max_per_route = 100
-            max_routes_cap = max(1, len(inspect_dates) * int(inspect_teams))
-            basis_label = "소요시간 기준"
+            max_per_route = int(inspect_targets_per_day)
+            max_routes_cap = len(inspect_dates) * int(inspect_teams)
+            basis_label = "검사일·팀별 대상 수 기준"
             basis = "time"
         else:
             sub_label("가. 기준 방식")
@@ -2440,8 +2460,30 @@ with page_build:
             if n_ready < len(edited):
                 st.warning(f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다.")
 
+            if purpose == "inspect":
+                inspect_capacity = (
+                    len(inspect_dates) * int(inspect_teams) * int(inspect_targets_per_day)
+                )
+                inspect_omitted_count = max(0, n_ready - inspect_capacity)
+                capacity_formula = (
+                    f"검사 가능일 {len(inspect_dates)}일 × {int(inspect_teams)}팀 × "
+                    f"팀당 하루 {int(inspect_targets_per_day)}개소 = 최대 {inspect_capacity}개소"
+                )
+                if inspect_omitted_count:
+                    st.warning(
+                        f"⚠️ {capacity_formula}까지 검사할 수 있어, 전체 {n_ready}개소 중 "
+                        f"{inspect_omitted_count}개소가 누락될 예정입니다. "
+                        "검사 대상 수 또는 검사일수를 조정하세요."
+                    )
+                elif inspect_capacity:
+                    st.success(f"✅ {capacity_formula} · 전체 {n_ready}개소를 기간 안에 검사할 수 있습니다.")
+                else:
+                    st.error("검사 가능한 날짜가 없습니다. 검사기간 또는 검사 가능 요일을 조정하세요.")
+
             run = st.button("🚒 노선 생성 시작", type="primary",
-                            disabled=(not has_keys() or n_ready == 0), use_container_width=True)
+                            disabled=(not has_keys() or n_ready == 0 or
+                                      (purpose == "inspect" and inspect_capacity == 0)),
+                            use_container_width=True)
         else:
             run = False
             edited = None
@@ -2585,10 +2627,12 @@ with page_build:
             routes, unassigned = build_routes(
                 normal_points, station, mode, max_per_route,
                 seg_max_km, seg_max_min, target_min_high,
-                max_routes_cap or None, basis=basis, on_call=bump_build,
+                (max_routes_cap if purpose == "inspect" else max_routes_cap or None),
+                basis=basis, on_call=bump_build,
                 candidate_k=candidate_k, should_stop=over_limit,
                 service_min_per_stop=(int(season_stop_min) if purpose == "season" else
                                       int(inspect_minutes) if purpose == "inspect" else 0),
+                strict_route_cap=(purpose == "inspect"),
             )
         build_progress.empty()
 
@@ -2605,7 +2649,8 @@ with page_build:
                     "한도를 늘리거나 'API 호출 절약'을 켜고 다시 실행해 보세요."
                 )
 
-        if unassigned:
+        inspect_omitted_points = unassigned[:] if purpose == "inspect" else []
+        if unassigned and purpose != "inspect":
             for p in unassigned:
                 if over_limit():
                     km = haversine_km(
@@ -2636,9 +2681,20 @@ with page_build:
         elif purpose == "inspect":
             available_team_days = len(inspect_dates) * int(inspect_teams)
             assigned_targets = sum(len(route) for route in routes)
-            daily_target = math.ceil(assigned_targets / available_team_days) if available_team_days else 0
             team_info = (f" · 검사 가능일 {len(inspect_dates)}일 · {inspect_teams}팀"
-                         + (f" · 팀당 하루 최소 {daily_target}개소" if daily_target else ""))
+                         f" · 팀당 하루 최대 {int(inspect_targets_per_day)}개소")
+            if inspect_omitted_points:
+                st.warning(
+                    f"⚠️ 설정 조건으로는 최대 {inspect_capacity}개소까지 편성할 수 있어, "
+                    f"전체 {len(points)}개소 중 {len(inspect_omitted_points)}개소가 누락되었습니다. "
+                    "검사 대상 수 또는 검사일수를 조정하세요."
+                )
+            else:
+                st.success(
+                    f"✅ 검사 가능일 {len(inspect_dates)}일, {int(inspect_teams)}팀, "
+                    f"팀당 하루 최대 {int(inspect_targets_per_day)}개소 조건으로 "
+                    f"전체 {assigned_targets}개소를 기간 안에 편성했습니다."
+                )
         elif purpose == "guard" and guard_repeat_label == "매일 같은 코스 반복" and guard_rounds:
             total_runs = int(guard_rounds.replace("회", "")) * period_days
             team_info = f" · 매일 같은 코스로 하루 {guard_rounds} 반복({period_days}일간 총 {total_runs}회)"
@@ -2693,13 +2749,19 @@ with page_build:
             done += 1
             call_progress.progress(min(done / max(total_calls, 1), 1.0), text="노선별 실도로 경로 확정 중...")
 
-            route_results.append({
+            result = {
                 "route_no": ri + 1, "stops": route, "legs": legs,
                 "vehicle_no": route[0].get("vehicle_no") if route else None,
                 "assigned_members": sorted({p.get("assigned_to", "") for p in route if p.get("assigned_to")}),
                 "back_km": back_km, "back_min": back_min,
                 "total_km": acc_km, "total_min": acc_min, "path": all_path,
-            })
+            }
+            if purpose == "inspect" and inspect_dates:
+                date_index = ri // int(inspect_teams)
+                if date_index < len(inspect_dates):
+                    result["inspection_date"] = inspect_dates[date_index]
+                    result["inspection_team"] = ri % int(inspect_teams) + 1
+            route_results.append(result)
         call_progress.empty()
 
         if purpose == "hydrant":
@@ -3059,7 +3121,13 @@ with page_build:
                         hydrant_label = f" · {rr['vehicle_no']}호차" + (f" · {members}" if members else "")
                     season_runs = (f" · 기간 중 {rr.get('period_runs', 0)}회 예상"
                                    if meta.get("purpose") == "③ 계절순찰" and rr.get("period_runs") else "")
-                    head = (f"노선 {rr['route_no']}" + hydrant_label + (f" · {team_name}" if team_name else ""))
+                    inspect_schedule = ""
+                    if meta.get("purpose") == "④ 예방검사" and rr.get("inspection_date"):
+                        inspect_schedule = (
+                            f" · {rr['inspection_date']:%Y-%m-%d} · {rr.get('inspection_team', 1)}팀"
+                        )
+                    head = (f"노선 {rr['route_no']}" + inspect_schedule + hydrant_label
+                            + (f" · {team_name}" if team_name else ""))
                     st.markdown(f"#### 🚒 {head}{over_mark}")
                     st.caption(
                         f"{len(rr['stops'])}개소 · 총 {rr['total_km']:.1f}km · 약 {rr['total_min']:.0f}분"
