@@ -7,9 +7,12 @@ import io
 import json
 import math
 import re
+import secrets
+import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, time as dtime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import quote
 
 import folium
@@ -18,6 +21,7 @@ import qrcode
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
+from cryptography.fernet import Fernet, InvalidToken
 from streamlit_local_storage import LocalStorage
 from streamlit_folium import st_folium
 
@@ -32,6 +36,12 @@ KAKAO_PLACE_SEARCH_URL = "https://search.map.kakao.com/mapsearch/map.daum"
 NCP_KEY_ID = st.secrets.get("NCP_CLIENT_ID", "")
 NCP_KEY = st.secrets.get("NCP_CLIENT_SECRET", "")
 APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
+MOBILE_TRANSFER_SECRET = str(
+    st.secrets.get("MOBILE_TRANSFER_SECRET", NCP_KEY or APP_PASSWORD)
+)
+APP_PUBLIC_URL = str(
+    st.secrets.get("APP_PUBLIC_URL", "https://faseru-origin.streamlit.app/")
+).rstrip("/")
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
@@ -42,6 +52,9 @@ BROWSER_DRAFT_LEGACY_KEY = "paseru_last_work_v1"
 BROWSER_DRAFT_KEY_PREFIX = "paseru_saved_work_v1_"
 BROWSER_DRAFT_DAYS = 7
 BROWSER_DRAFT_MAX_ITEMS = 3
+MOBILE_TRANSFER_TTL_SECONDS = 10 * 60
+MOBILE_TRANSFER_MAX_BYTES = 3_500_000
+MOBILE_TRANSFER_DIR = Path(tempfile.gettempdir()) / "paseru_mobile_transfers_v1"
 
 
 def ncp_headers():
@@ -130,6 +143,104 @@ def browser_draft_label(payload):
     except (TypeError, ValueError, OSError):
         saved_text = "저장시각 없음"
     return f"{source_name} · 대상 {target_count}건 · {saved_text}"
+
+
+def minimum_transfer_targets(targets_df):
+    """휴대폰 전달에는 대상명과 주소 열만 포함해 불필요한 원본 열을 제외한다."""
+    columns = list(targets_df.columns)
+    name_index = find_name_column_index(columns)
+    address_index = find_address_column_index(columns, name_index)
+    return pd.DataFrame({
+        "대상명": targets_df.iloc[:, name_index].copy(),
+        "주소": targets_df.iloc[:, address_index].copy(),
+    })
+
+
+def mobile_transfer_cipher():
+    """앱 비밀값으로 일회용 전달자료의 서버 임시파일을 암호화한다."""
+    if not MOBILE_TRANSFER_SECRET:
+        return None
+    key_material = hashlib.sha256(
+        f"paseru-mobile-transfer-v1\n{MOBILE_TRANSFER_SECRET}".encode("utf-8"),
+    ).digest()
+    return Fernet(base64.urlsafe_b64encode(key_material))
+
+
+def cleanup_mobile_transfers(now_timestamp=None):
+    """10분이 지난 일회용 전달파일과 중단된 수신파일을 정리한다."""
+    now_timestamp = float(now_timestamp or datetime.now().timestamp())
+    MOBILE_TRANSFER_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for transfer_path in list(MOBILE_TRANSFER_DIR.glob("*.transfer")) + list(
+        MOBILE_TRANSFER_DIR.glob("*.claim")
+    ):
+        try:
+            if transfer_path.stat().st_mtime < now_timestamp - MOBILE_TRANSFER_TTL_SECONDS - 60:
+                transfer_path.unlink(missing_ok=True)
+                continue
+            if transfer_path.suffix == ".transfer":
+                envelope = json.loads(transfer_path.read_text(encoding="utf-8"))
+                if float(envelope.get("expires_at", 0)) <= now_timestamp:
+                    transfer_path.unlink(missing_ok=True)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            transfer_path.unlink(missing_ok=True)
+
+
+def create_mobile_transfer(draft_payload):
+    """작업자료를 암호화해 10분짜리 일회용 전달 토큰으로 만든다."""
+    cipher = mobile_transfer_cipher()
+    if cipher is None:
+        raise ValueError("앱 비밀번호가 설정되지 않아 전달자료를 암호화할 수 없습니다.")
+    serialized = json.dumps(draft_payload, ensure_ascii=False, default=str).encode("utf-8")
+    if len(serialized) > MOBILE_TRANSFER_MAX_BYTES:
+        raise ValueError("작업자료가 휴대폰 일회용 전달 허용 크기를 초과했습니다.")
+
+    cleanup_mobile_transfers()
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now().timestamp() + MOBILE_TRANSFER_TTL_SECONDS
+    envelope = {
+        "expires_at": expires_at,
+        "ciphertext": cipher.encrypt(serialized).decode("ascii"),
+    }
+    final_path = MOBILE_TRANSFER_DIR / f"{token}.transfer"
+    temporary_path = MOBILE_TRANSFER_DIR / f"{token}.{secrets.token_hex(6)}.tmp"
+    temporary_path.write_text(json.dumps(envelope), encoding="utf-8")
+    temporary_path.chmod(0o600)
+    temporary_path.replace(final_path)
+    return token, expires_at
+
+
+def consume_mobile_transfer(token):
+    """일회용 토큰의 작업을 한 번만 복원하고 임시파일을 즉시 삭제한다."""
+    if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{40,60}", token):
+        return None, "invalid"
+    cipher = mobile_transfer_cipher()
+    if cipher is None:
+        return None, "unavailable"
+
+    cleanup_mobile_transfers()
+    transfer_path = MOBILE_TRANSFER_DIR / f"{token}.transfer"
+    claim_path = MOBILE_TRANSFER_DIR / f"{token}.{secrets.token_hex(6)}.claim"
+    try:
+        transfer_path.replace(claim_path)
+    except FileNotFoundError:
+        return None, "missing"
+    except OSError:
+        return None, "busy"
+
+    try:
+        envelope = json.loads(claim_path.read_text(encoding="utf-8"))
+        if float(envelope.get("expires_at", 0)) <= datetime.now().timestamp():
+            return None, "expired"
+        decrypted = cipher.decrypt(envelope["ciphertext"].encode("ascii"))
+        payload = json.loads(decrypted.decode("utf-8"))
+        draft, draft_status = decode_browser_draft(payload)
+        if draft_status != "ok":
+            return None, "invalid"
+        return draft, "ok"
+    except (InvalidToken, KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None, "invalid"
+    finally:
+        claim_path.unlink(missing_ok=True)
 
 
 def apply_browser_draft(payload, storage_key):
@@ -1696,6 +1807,36 @@ if pending_draft_key:
         st.session_state["browser_draft_restored_notice"] = True
         st.rerun()
 
+mobile_transfer_token = st.query_params.get("transfer")
+if (
+    mobile_transfer_token
+    and st.session_state.get("mobile_transfer_processed_token") != str(mobile_transfer_token)
+):
+    transferred_draft, transfer_status = consume_mobile_transfer(str(mobile_transfer_token))
+    try:
+        del st.query_params["transfer"]
+    except KeyError:
+        pass
+    st.session_state["mobile_transfer_processed_token"] = str(mobile_transfer_token)
+    if transfer_status == "ok":
+        now_timestamp = datetime.now().timestamp()
+        transferred_draft["saved_at"] = now_timestamp
+        transferred_draft["expires_at"] = (
+            now_timestamp + BROWSER_DRAFT_DAYS * 24 * 60 * 60
+        )
+        transferred_key = browser_work_key(
+            transferred_draft.get("source_name"), transferred_draft["targets_df"],
+        )
+        apply_browser_draft(transferred_draft, transferred_key)
+        st.session_state["browser_draft_mobile_imported_notice"] = True
+        st.rerun()
+    elif transfer_status in ("missing", "expired"):
+        st.error("이 휴대폰 전달 QR은 이미 사용했거나 10분의 유효시간이 지났습니다. PC에서 새 QR을 만들어주세요.")
+    elif transfer_status == "busy":
+        st.warning("다른 기기에서 이 작업을 가져오는 중입니다. PC에서 새 QR을 만들어 다시 시도해주세요.")
+    else:
+        st.error("휴대폰 전달자료를 확인할 수 없습니다. PC에서 새 QR을 만들어주세요.")
+
 if "browser_draft_saving_enabled" not in st.session_state:
     st.session_state["browser_draft_saving_enabled"] = True
 
@@ -1703,6 +1844,12 @@ if st.session_state.pop("browser_draft_restored_notice", False):
     st.success(
         "✅ 이 PC에 저장된 작업을 복원했습니다. "
         "대상목록과 기존 좌표검색 결과를 다시 불러오지 않아도 됩니다."
+    )
+
+if st.session_state.pop("browser_draft_mobile_imported_notice", False):
+    st.success(
+        "✅ PC 작업을 이 휴대폰으로 가져왔습니다. "
+        "이 휴대폰의 현재 브라우저에 최대 3개 중 하나로 7일간 자동 보관됩니다."
     )
 
 if st.session_state.pop("browser_draft_deleted_notice", False):
@@ -1924,6 +2071,23 @@ with page_basic:
             """,
             unsafe_allow_html=True,
         )
+        st.markdown(
+            """
+            <div style="margin:0.25rem 0 1rem;padding:1rem 1.1rem;border:1px solid #9b8bd1;
+                        border-left:6px solid #6750a4;border-radius:10px;background:#f6f2ff;
+                        color:#35275c;line-height:1.6;box-shadow:0 2px 8px rgba(103,80,164,.08);">
+              <div style="font-size:1.05rem;font-weight:800;margin-bottom:0.2rem;color:#503a8a;">
+                📱 PC 작업을 휴대폰에서 이어볼 수 있습니다
+              </div>
+              <div style="font-size:0.95rem;font-weight:600;color:#46366f;">
+                파일을 올린 뒤 아래의 <b>휴대폰으로 이어하기 QR 만들기</b>를 누르고 휴대폰으로 촬영하세요.
+                전달자료는 암호화해 최대 10분만 임시 보관하며, 한 번 가져오면 즉시 폐기됩니다.
+                휴대폰으로 가져온 작업은 그 휴대폰의 현재 브라우저에 7일간 자동 보관됩니다.
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
         if saved_drafts:
@@ -2016,6 +2180,81 @@ with page_basic:
         df = restored_df.copy()
     elif use_sample:
         df = pd.read_excel(SAMPLE_XLSX)
+
+    if df is not None and len(df) and (
+        uploaded is not None or st.session_state.get("browser_restored_df") is not None
+    ):
+        with st.container(border=True):
+            st.markdown("### 📱 휴대폰으로 이어하기")
+            st.caption(
+                "대상목록·출발부서·좌표검색 결과를 일회용 QR로 전달합니다. "
+                "원본 엑셀 파일과 개인 성명·전화번호는 전달하지 마세요."
+            )
+            coords_ready_for_transfer = st.session_state.get("coords_df") is not None
+            if not coords_ready_for_transfer:
+                st.info("좌표 검색 전에도 목록을 보낼 수 있지만, 휴대폰에서 좌표를 다시 검색해야 합니다.")
+            if st.button(
+                "📲 휴대폰으로 이어하기 QR 만들기",
+                type="primary",
+                use_container_width=True,
+                key="create_mobile_transfer_qr",
+            ):
+                now_timestamp = datetime.now().timestamp()
+                transfer_targets = minimum_transfer_targets(df)
+                transfer_content = browser_draft_content(
+                    st.session_state.get("browser_source_name") or "업로드 자료",
+                    patrol_title,
+                    station_query,
+                    station_result,
+                    transfer_targets,
+                    st.session_state.get("coords_df"),
+                    st.session_state.get("coord_api_calls", 0),
+                )
+                transfer_payload = {
+                    **transfer_content,
+                    "saved_at": now_timestamp,
+                    "expires_at": now_timestamp + BROWSER_DRAFT_DAYS * 24 * 60 * 60,
+                }
+                try:
+                    transfer_token, transfer_expires_at = create_mobile_transfer(transfer_payload)
+                    transfer_url = f"{APP_PUBLIC_URL}/?transfer={quote(transfer_token, safe='')}"
+                    st.session_state["mobile_transfer_qr"] = {
+                        "url": transfer_url,
+                        "png": make_qr_png(transfer_url),
+                        "expires_at": transfer_expires_at,
+                    }
+                except (OSError, ValueError) as exc:
+                    st.session_state.pop("mobile_transfer_qr", None)
+                    st.error(str(exc))
+
+            mobile_transfer_qr = st.session_state.get("mobile_transfer_qr")
+            if mobile_transfer_qr:
+                remaining_seconds = int(
+                    float(mobile_transfer_qr["expires_at"]) - datetime.now().timestamp()
+                )
+                if remaining_seconds > 0:
+                    qr_col, qr_guide_col = st.columns([1, 2])
+                    with qr_col:
+                        st.image(
+                            mobile_transfer_qr["png"],
+                            caption="휴대폰 카메라로 촬영",
+                            width=260,
+                        )
+                    with qr_guide_col:
+                        st.success("QR이 준비되었습니다. 지금 휴대폰으로 촬영하세요.")
+                        st.markdown(
+                            "1. 휴대폰 카메라로 QR 촬영  \n"
+                            "2. 파세루 앱 열기  \n"
+                            "3. 앱 비밀번호 입력  \n"
+                            "4. 작업 자동 가져오기"
+                        )
+                        st.warning(
+                            "이 QR은 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
+                            "가져온 뒤에는 휴대폰 브라우저에 7일간 보관됩니다."
+                        )
+                else:
+                    st.session_state.pop("mobile_transfer_qr", None)
+                    st.warning("QR 유효시간 10분이 지났습니다. 새 QR을 만들어주세요.")
 
 
     @st.cache_resource
