@@ -2119,10 +2119,16 @@ with page_basic:
               .st-key-download_blank_target_template button {
                 height:3rem!important; min-height:3rem!important; padding:0!important;
                 border:1px solid #75b58d!important; background:#e8f5ed!important;
-                color:#17633b!important; font-weight:800!important;
+                color:#17263a!important; font-weight:800!important;
+              }
+              .st-key-download_blank_target_template button * {
+                color:#17263a!important;
               }
               .st-key-download_blank_target_template button:hover {
-                border-color:#4e9a6b!important; background:#d9efE2!important; color:#125432!important;
+                border-color:#4e9a6b!important; background:#d9efe2!important; color:#17263a!important;
+              }
+              .st-key-download_blank_target_template button:hover * {
+                color:#17263a!important;
               }
               .st-key-load_selected_browser_draft button,
               .st-key-delete_selected_browser_draft button {
@@ -2132,7 +2138,7 @@ with page_basic:
             """,
             unsafe_allow_html=True,
         )
-        upload_col, template_col, load_col, delete_col = st.columns([3, 3, 2, 2], gap="small")
+        upload_col, template_col, load_col, delete_col = st.columns([3, 3, 2.5, 1.5], gap="small")
         with upload_col:
             uploaded = st.file_uploader(
                 "대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
@@ -2149,7 +2155,7 @@ with page_basic:
             )
         with load_col:
             if st.button(
-                "📂 선택 작업 불러오기", key="load_selected_browser_draft",
+                "📂 기존 작업 불러오기", key="load_selected_browser_draft",
                 use_container_width=True, disabled=selected_draft_key is None,
             ):
                 st.session_state["pending_browser_draft_key"] = selected_draft_key
