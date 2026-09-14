@@ -2098,6 +2098,10 @@ with page_basic:
         st.markdown(
             """
             <style>
+              div[data-testid="stTextInput"] input:disabled {
+                color:#111827!important; -webkit-text-fill-color:#111827!important;
+                opacity:1!important; background:#ffffff!important;
+              }
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] {
                 padding:0!important; min-height:3rem!important; border:0!important; background:transparent!important;
               }
@@ -2119,16 +2123,19 @@ with page_basic:
               .st-key-download_blank_target_template button {
                 height:3rem!important; min-height:3rem!important; padding:0!important;
                 border:1px solid #75b58d!important; background:#e8f5ed!important;
-                color:#17263a!important; font-weight:800!important;
+                color:#111827!important; -webkit-text-fill-color:#111827!important;
+                font-size:0!important; font-weight:800!important; opacity:1!important;
               }
-              .st-key-download_blank_target_template button * {
-                color:#17263a!important;
+              .st-key-download_blank_target_template button > * {
+                display:none!important;
+              }
+              .st-key-download_blank_target_template button::after {
+                content:"📥 대상 목록 빈 양식(xlsx)"; font-size:0.96rem!important;
+                color:#111827!important; -webkit-text-fill-color:#111827!important;
               }
               .st-key-download_blank_target_template button:hover {
-                border-color:#4e9a6b!important; background:#d9efe2!important; color:#17263a!important;
-              }
-              .st-key-download_blank_target_template button:hover * {
-                color:#17263a!important;
+                border-color:#4e9a6b!important; background:#d9efe2!important;
+                color:#111827!important; -webkit-text-fill-color:#111827!important;
               }
               .st-key-load_selected_browser_draft button,
               .st-key-delete_selected_browser_draft button {
