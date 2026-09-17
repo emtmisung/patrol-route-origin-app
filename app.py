@@ -30,6 +30,12 @@ from streamlit_folium import st_folium
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="파세루 오리진 (FireSafe Route Origin)", page_icon="🚒", layout="wide")
 
+GEOLOCATION_COMPONENT_DIR = Path(__file__).parent / "geolocation_component"
+geolocation_component = components.declare_component(
+    "paseru_geolocation",
+    path=str(GEOLOCATION_COMPONENT_DIR),
+)
+
 GEOCODE_URL = "https://maps.apigw.ntruss.com/map-geocode/v2/geocode"
 DIRECTIONS_URL = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
 KAKAO_PLACE_SEARCH_URL = "https://search.map.kakao.com/mapsearch/map.daum"
@@ -1230,7 +1236,7 @@ def build_distribution_map(coords_df, station=None):
         bounds.append([station_lat, station_lng])
         folium.Marker(
             [station_lat, station_lng],
-            tooltip=f"출발부서: {station.get('name', '')}",
+            tooltip=f"출발지: {station.get('name', '')}",
             icon=folium.DivIcon(
                 icon_size=(66, 28), icon_anchor=(33, 14),
                 html=(
@@ -2007,26 +2013,37 @@ with page_basic:
         if "patrol_title" not in st.session_state:
             st.session_state["patrol_title"] = "예시) 소방안전 순찰노선 - 성주군 일원"
         patrol_title = st.text_input("순찰 제목", key="patrol_title")
-        station_input_col, station_search_col = st.columns([3, 1])
-        with station_input_col:
-            station_query = st.text_input(
-                "출발부서 이름",
-                value=st.session_state.get("station_query", "성주소방서"),
-                placeholder="예: 선남119안전센터",
-                help="소방서·119안전센터·구조구급센터 등 출발할 부서명을 입력하세요.",
+        station_search_area, current_location_area = st.columns(2, gap="medium")
+        with station_search_area:
+            station_input_col, station_search_col = st.columns([3, 1])
+            with station_input_col:
+                station_query = st.text_input(
+                    "출발부서 이름",
+                    value=st.session_state.get("station_query", "성주소방서"),
+                    placeholder="예: 선남119안전센터",
+                    help="소방서·119안전센터·구조구급센터 등 출발할 부서명을 입력하세요.",
+                )
+            with station_search_col:
+                st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
+                search_station = st.button(
+                    "🔎 주소검색", key="search_departure_department_btn",
+                    type="primary", use_container_width=True,
+                )
+
+        with current_location_area:
+            st.markdown(
+                "<div style='font-size:.95rem;font-weight:650;margin-bottom:.38rem;'>현 위치 설정</div>",
+                unsafe_allow_html=True,
+            )
+            current_location = geolocation_component(
+                key="departure_geolocation",
+                default=None,
             )
         if station_query != st.session_state.get("station_query"):
             st.session_state["station_query"] = station_query
             st.session_state.pop("station_search_result", None)
             for stale_key in ("station", "route_results", "far_points", "meta"):
                 st.session_state.pop(stale_key, None)
-
-        with station_search_col:
-            st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
-            search_station = st.button(
-                "🔎 주소검색", key="search_departure_department_btn",
-                type="primary", use_container_width=True,
-            )
 
         if search_station:
             found_name, found_address, found_lat, found_lng, search_status = search_departure_department(station_query)
@@ -2041,15 +2058,42 @@ with page_basic:
                 st.session_state.pop("station_search_result", None)
                 st.warning(search_status)
 
+        if isinstance(current_location, dict):
+            location_request_id = current_location.get("request_id")
+            if (location_request_id and location_request_id !=
+                    st.session_state.get("last_geolocation_request_id")):
+                st.session_state["last_geolocation_request_id"] = location_request_id
+                if current_location.get("status") == "ok":
+                    found_lat = float(current_location["latitude"])
+                    found_lng = float(current_location["longitude"])
+                    accuracy = current_location.get("accuracy")
+                    accuracy_text = (
+                        f" · 정확도 약 {float(accuracy):.0f}m" if accuracy is not None else ""
+                    )
+                    st.session_state["station_search_result"] = {
+                        "name": "현 위치",
+                        "address": f"휴대폰 GPS로 확인한 현재 위치{accuracy_text}",
+                        "lat": found_lat,
+                        "lng": found_lng,
+                    }
+                    for stale_key in ("station", "route_results", "far_points", "meta"):
+                        st.session_state.pop(stale_key, None)
+                else:
+                    st.warning(
+                        current_location.get("message") or
+                        "현재 위치를 확인하지 못했습니다. 위치 권한을 허용한 뒤 다시 눌러주세요."
+                    )
+
         station_result = st.session_state.get("station_search_result")
         if station_result:
             station_name = station_result["name"]
             station_address = station_result["address"]
             station_lat = station_result["lat"]
             station_lng = station_result["lng"]
-            st.success(f"✅ 출발부서 주소와 좌표가 연결되었습니다: {station_name}")
+            connected_label = "출발지가 설정되었습니다" if station_name == "현 위치" else "출발부서 주소와 좌표가 연결되었습니다"
+            st.success(f"✅ {connected_label}: {station_name}")
             result_c1, result_c2, result_c3 = st.columns([2.2, 1, 1])
-            result_c1.text_input("출발부서 주소", value=station_address, disabled=True)
+            result_c1.text_input("출발지 정보", value=station_address, disabled=True)
             result_c2.text_input("위도", value=f"{station_lat:.7f}", disabled=True)
             result_c3.text_input("경도", value=f"{station_lng:.7f}", disabled=True)
         else:
@@ -2275,7 +2319,7 @@ with page_basic:
         with mobile_panel.container(border=True):
             st.markdown("### 📱 휴대폰으로 이어하기")
             st.caption(
-                "대상목록·출발부서·좌표를 일회용 QR로 전달합니다."
+                "대상목록·출발지·좌표를 일회용 QR로 전달합니다."
             )
             coords_ready_for_transfer = st.session_state.get("coords_df") is not None
             st.caption("좌표 검색 완료 후 사용할 수 있습니다.")
@@ -2720,7 +2764,7 @@ with page_basic:
     )
     next_tab_button("2단계로 이동", 1, enabled=basic_ready)
     if not basic_ready:
-        st.caption("제목·출발부서·대상목록을 입력하고 좌표 검색을 완료하면 버튼이 초록색으로 바뀝니다.")
+        st.caption("제목·출발지·대상목록을 입력하고 좌표 검색을 완료하면 버튼이 초록색으로 바뀝니다.")
 
     # ----------------------------------------------------------------------------
 
@@ -2847,7 +2891,7 @@ with page_details:
             cc5, cc6 = st.columns(2)
             with cc5:
                 commander_oneway_label = st.pills(
-                    "출발부서 기준 편도 허용시간",
+                    "출발지 기준 편도 허용시간",
                     ["10분", "20분", "수동입력"],
                     default="20분",
                 ) or "20분"
@@ -3323,7 +3367,7 @@ with page_build:
         # 1) 기본정보에서 검색·확정한 출발부서 좌표 사용
         s_lat, s_lng = station_lat, station_lng
         if s_lat is None or s_lng is None:
-            st.error("1단계 기본정보에서 출발부서를 먼저 검색해주세요.")
+            st.error("1단계 기본정보에서 출발부서를 검색하거나 현 위치를 조회해주세요.")
             st.stop()
         station = {"name": station_name, "lat": s_lat, "lng": s_lng}
 
@@ -3352,7 +3396,7 @@ with page_build:
             normal_points = points
             far_points = []
         elif purpose == "other":
-            long_progress = st.progress(0.0, text="출발부서 기준 편도시간 확인 중...")
+            long_progress = st.progress(0.0, text="출발지 기준 편도시간 확인 중...")
 
             def bump(total_hint=len(points)):
                 call_counter["n"] += 1
