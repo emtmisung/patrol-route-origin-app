@@ -1894,7 +1894,9 @@ with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설
         st.markdown(
             "- **예방검사:** 검사기한·가능일·팀 수를 계산해 하루 권장량을 정합니다.\n"
             "- **지리조사:** 전체 소화전을 인원과 차량에 균등 배정해 월 10회 안에 점검합니다.\n"
-            "- **API 호출 제한:** 반복 계산으로 인한 처리 지연과 지도 API 비용 증가를 막습니다."
+            "- **API 호출 제한:** 반복 계산으로 인한 처리 지연과 지도 API 비용 증가를 막습니다.\n"
+            "- **대규모 처리 검증:** 217개소급 실증 결과를 반영해 작업당 호출 한도를 "
+            "500건에서 **3,000건**으로 상향했습니다."
         )
     st.caption("자동 생성 노선은 참고안입니다. 현장과 출동 여건을 담당자가 검토한 뒤 최종 노선을 결정하세요.")
 
@@ -3633,6 +3635,9 @@ with page_build:
                              "방문일" if purpose == "other" else "순찰기간"),
             "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
             "target_min": target_min,
+            "api_calls_used": coord_api_calls + call_counter["n"] + total_calls,
+            "api_call_limit": API_CALL_LIMIT,
+            "validated_target_count": 217,
         }
 
     # ----------------------------------------------------------------------------
@@ -3696,6 +3701,28 @@ with page_build:
                   <div style="font-size:1rem;font-weight:650;color:#29483a;">
                     아래에서 생성된 {len(route_results)}개 노선을 지도로 모두 확인하세요.
                     지도 아래 '상세보기'를 열면 방문순서·카카오맵·QR코드가 나옵니다.
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            api_calls_used = int(meta.get("api_calls_used", 0))
+            api_call_limit = int(meta.get("api_call_limit", API_CALL_LIMIT))
+            validated_target_count = int(meta.get("validated_target_count", 217))
+            st.markdown(
+                f"""
+                <div style="margin:-.2rem 0 1.25rem;padding:1rem 1.2rem;border-radius:14px;
+                            background:#f5f8ff;border:1px solid #b8c8e8;
+                            box-shadow:0 8px 20px -18px rgba(31,71,135,.7);">
+                  <div style="font-size:.92rem;font-weight:750;color:#284f84;margin-bottom:.35rem;">
+                    ⚙️ 대규모 데이터 처리 규모
+                  </div>
+                  <div style="font-size:1.12rem;font-weight:800;color:#17375f;">
+                    이번 작업 사용 API 호출 <span style="color:#126f4b;">{api_calls_used:,}건</span>
+                    <span style="color:#68788d;font-weight:650;"> / 작업당 한도 {api_call_limit:,}건</span>
+                  </div>
+                  <div style="margin-top:.3rem;font-size:.88rem;color:#53657b;">
+                    {validated_target_count}개소급 대규모 실증 결과를 반영해 기존 500건에서 상향했습니다.
                   </div>
                 </div>
                 """,
