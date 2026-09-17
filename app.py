@@ -1726,6 +1726,31 @@ if not st.session_state.get("paseru_authenticated", False):
             entered_password = st.text_input("비밀번호", type="password", placeholder="비밀번호를 입력하세요")
             login_submitted = st.form_submit_button("앱 시작하기", type="primary", use_container_width=True)
 
+        with st.expander("📌 PC·휴대폰에 바로가기 만들기", expanded=False):
+            st.markdown(
+                """
+                **🖥️ Windows PC — Edge 권장**
+
+                1. 브라우저 오른쪽 위 **···**를 누릅니다.
+                2. **앱 → 이 사이트를 앱으로 설치**를 선택합니다.
+                3. 이름을 `파세루 오리진`으로 확인하고 **설치**를 누르면 바탕화면과 시작 메뉴에서 실행할 수 있습니다.
+
+                **📱 안드로이드 휴대폰 — Chrome**
+
+                1. 오른쪽 위 **⋮**를 누릅니다.
+                2. **홈 화면에 추가**를 선택합니다.
+                3. **설치** 또는 **바로가기 만들기**를 누릅니다.
+
+                **🍎 아이폰 — Safari**
+
+                1. 아래쪽 **공유 버튼(□↑)**을 누릅니다.
+                2. 메뉴를 내려 **홈 화면에 추가**를 선택합니다.
+                3. 오른쪽 위 **추가**를 누릅니다.
+
+                ※ 바로가기를 만들어도 앱의 업무자료 보호를 위한 비밀번호 인증은 계속 필요합니다.
+                """
+            )
+
         st.markdown(
             '<div style="margin-top:0.45rem;text-align:center;color:#344054;font-size:0.88rem;">'
             '비밀번호를 잊으셨나요? '
