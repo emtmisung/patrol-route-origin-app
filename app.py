@@ -2704,11 +2704,37 @@ with page_basic:
                             f"🧭 {center_reason}으로 지도를 열었습니다. "
                             "이 시작점은 위치를 찾기 위한 화면 기준이며 대상 좌표로 저장되지 않습니다."
                         )
+                        st.caption(
+                            "🛰️ 위성사진이 기본으로 표시됩니다. 건물 지붕을 확인해 실제 위치를 누르세요. "
+                            "오른쪽 위 지도선택 버튼에서 일반지도로 바꿀 수 있습니다."
+                        )
 
                         manual_map = folium.Map(
                             location=[center_lat, center_lng], zoom_start=start_zoom,
-                            control_scale=True,
+                            tiles=None, control_scale=True,
                         )
+                        folium.TileLayer(
+                            tiles=(
+                                "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                                "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                            ),
+                            attr=(
+                                "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, "
+                                "and the GIS User Community"
+                            ),
+                            name="🛰️ 위성사진(건물 확인)",
+                            overlay=False,
+                            control=True,
+                            show=True,
+                            max_zoom=20,
+                        ).add_to(manual_map)
+                        folium.TileLayer(
+                            tiles="OpenStreetMap",
+                            name="🗺️ 일반지도(도로 확인)",
+                            overlay=False,
+                            control=True,
+                            show=False,
+                        ).add_to(manual_map)
                         for _, known_row in valid_coords.iterrows():
                             folium.CircleMarker(
                                 [float(known_row["위도"]), float(known_row["경도"])],
@@ -2722,6 +2748,7 @@ with page_basic:
                                 icon=folium.Icon(color="red", icon="home"),
                             ).add_to(manual_map)
                         folium.LatLngPopup().add_to(manual_map)
+                        folium.LayerControl(position="topright", collapsed=True).add_to(manual_map)
                         manual_map_state = st_folium(
                             manual_map,
                             height=380,
