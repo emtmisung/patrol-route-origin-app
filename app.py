@@ -2506,23 +2506,28 @@ with page_basic:
                     )
                     st.rerun()
                 if fail_early:
-                    st.warning(f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · 실패 {fail_early}건")
-
-                    st.markdown("#### 🔁 좌표 실패건 처리")
-                    st.caption(
-                        "실패건마다 처리 방법을 선택하세요. 주소를 바로잡아 다시 검색하거나, "
-                        "전체 대상에서 제외하거나, 실제 위치와 가까운 대체주소로 좌표를 검색할 수 있습니다."
+                    st.warning(
+                        f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · "
+                        f"**실패 {fail_early}건**\n\n"
+                        f"실패한 {fail_early}건을 그대로 두지 말고, 아래에서 대상별로 "
+                        "**① 주소 수정 후 재분석 · ② 대상에서 제외 · ③ 인근지 주소로 검색** 중 "
+                        "하나를 선택한 뒤 적용 버튼을 눌러주세요."
+                    )
+                    st.markdown("#### 🔁 실패 대상 처리 방법 선택")
+                    st.info(
+                        "각 실패 대상의 **처리 방법**을 선택하세요. 재분석이나 인근지 검색을 선택하면 "
+                        "오른쪽 **검색할 주소**를 확인·수정하고, 제외를 선택하면 주소는 입력하지 않아도 됩니다."
                     )
                     retry_actions = [
-                        "주소를 변경해서 재검색",
-                        "전체 대상에서 제외",
-                        "인근 대체주소를 넣어 재검색",
+                        "① 주소 수정 후 재분석",
+                        "② 대상에서 제외",
+                        "③ 인근지 주소로 검색",
                     ]
                     failed_indexes = saved_early.index[saved_early["위도"].isna()].tolist()
                     retry_table = saved_early.loc[failed_indexes, ["대상명", "주소", "비고"]].copy()
                     retry_table.insert(0, "원본행", failed_indexes)
                     retry_table.insert(3, "처리 방법", retry_actions[0])
-                    retry_table.insert(4, "재검색 주소", retry_table["주소"])
+                    retry_table.insert(4, "검색할 주소", retry_table["주소"])
                     retry_table = retry_table.rename(columns={"비고": "실패 사유·시도내역"})
 
                     edited_retry = st.data_editor(
@@ -2539,9 +2544,9 @@ with page_basic:
                                 options=retry_actions, required=True, width="medium",
                                 help="실패한 대상을 어떻게 처리할지 선택하세요.",
                             ),
-                            "재검색 주소": st.column_config.TextColumn(
+                            "검색할 주소": st.column_config.TextColumn(
                                 width="large",
-                                help=("주소 변경 또는 인근 대체주소를 선택한 경우 정확한 도로명주소나 "
+                                help=("재분석 또는 인근지 검색을 선택한 경우 정확한 도로명주소나 "
                                       "지번주소를 입력하세요. 제외를 선택하면 이 칸은 사용하지 않습니다."),
                             ),
                             "실패 사유·시도내역": st.column_config.TextColumn(
@@ -2555,13 +2560,14 @@ with page_basic:
                     if remaining_coord_calls == 0:
                         st.warning(
                             "API 호출 한도에 도달해 주소 재검색은 할 수 없습니다. "
-                            "전체 대상에서 제외는 적용할 수 있습니다."
+                            "② 대상에서 제외는 적용할 수 있습니다."
                         )
 
                     if st.button(
                         f"✅ 실패 {fail_early}건 선택사항 적용",
                         type="primary",
                         use_container_width=True,
+                        help="위 표에서 선택한 재분석·제외·인근지 검색 방법을 실패 대상에 적용합니다.",
                     ):
                         updated_coords = saved_early.copy()
                         retry_counter = {"calls": 0}
@@ -2576,17 +2582,17 @@ with page_basic:
                             for _, retry_row in edited_retry.iterrows():
                                 original_index = int(retry_row["원본행"])
                                 retry_action = str(retry_row.get("처리 방법", retry_actions[0])).strip()
-                                retry_address = str(retry_row.get("재검색 주소", "")).strip()
+                                retry_address = str(retry_row.get("검색할 주소", "")).strip()
                                 target_name = str(retry_row.get("대상명", "")).strip()
 
-                                if retry_action == "전체 대상에서 제외":
+                                if retry_action == "② 대상에서 제외":
                                     exclude_indexes.append(original_index)
                                     retry_excluded += 1
                                     continue
 
                                 if not retry_address or retry_address.lower() == "nan":
                                     updated_coords.at[original_index, "비고"] = (
-                                        "재검색 주소가 비어 있어 처리하지 않았습니다."
+                                        "검색할 주소가 비어 있어 처리하지 않았습니다."
                                     )
                                     continue
 
@@ -2608,7 +2614,7 @@ with page_basic:
                                     updated_coords.at[original_index, "위도"] = lat
                                     updated_coords.at[original_index, "경도"] = lng
                                     old_address = str(saved_early.at[original_index, "주소"])
-                                    if retry_action == "인근 대체주소를 넣어 재검색":
+                                    if retry_action == "③ 인근지 주소로 검색":
                                         updated_coords.at[original_index, "상태"] = "📍 인근 대체주소 좌표"
                                         updated_coords.at[original_index, "비고"] = (
                                             f"실제 대상의 원주소: {old_address} | "
@@ -3267,7 +3273,7 @@ with page_build:
                 if fail_n:
                     st.error(
                         f"❌ {fail_n}건은 좌표를 찾지 못했습니다. 1단계의 **좌표 실패건 처리**에서 "
-                        "주소 변경 재검색·대상 제외·인근 대체주소 재검색 중 하나를 선택하거나, "
+                        "주소 수정 후 재분석·대상에서 제외·인근지 주소로 검색 중 하나를 선택하거나, "
                         "아래 표의 위도·경도 칸에 직접 입력하세요."
                     )
                 else:
