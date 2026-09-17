@@ -2523,7 +2523,7 @@ with page_basic:
                     st.markdown("#### 🔁 실패 대상 처리 방법 선택")
                     st.info(
                         "각 실패 대상의 **처리 방법**을 선택하세요. 재분석이나 인근지 검색을 선택하면 "
-                        "오른쪽 **검색할 주소**를 확인·수정하고, 제외를 선택하면 주소는 입력하지 않아도 됩니다."
+                        "바로 아래 나타나는 **검색할 주소**를 확인·수정하고, 제외를 선택하면 주소는 입력하지 않아도 됩니다."
                     )
                     retry_actions = [
                         "① 주소 수정 후 재분석",
@@ -2531,36 +2531,53 @@ with page_basic:
                         "③ 인근지 주소로 검색",
                     ]
                     failed_indexes = saved_early.index[saved_early["위도"].isna()].tolist()
-                    retry_table = saved_early.loc[failed_indexes, ["대상명", "주소", "비고"]].copy()
-                    retry_table.insert(0, "원본행", failed_indexes)
-                    retry_table.insert(3, "처리 방법", retry_actions[0])
-                    retry_table.insert(4, "검색할 주소", retry_table["주소"])
-                    retry_table = retry_table.rename(columns={"비고": "실패 사유·시도내역"})
+                    retry_key = hashlib.sha256(
+                        repr(coord_signature).encode("utf-8"),
+                    ).hexdigest()[:12]
+                    retry_rows = []
+                    for retry_no, original_index in enumerate(failed_indexes, start=1):
+                        failed_row = saved_early.loc[original_index]
+                        target_name = str(failed_row.get("대상명", "")).strip()
+                        original_address = str(failed_row.get("주소", "")).strip()
+                        failure_detail = str(failed_row.get("비고", "")).strip()
 
-                    edited_retry = st.data_editor(
-                        retry_table,
-                        use_container_width=True,
-                        hide_index=True,
-                        num_rows="fixed",
-                        key=f"retry_address_editor_{hash(coord_signature)}",
-                        column_config={
-                            "원본행": None,
-                            "대상명": st.column_config.TextColumn(disabled=True, width="medium"),
-                            "주소": st.column_config.TextColumn("기존 주소", disabled=True, width="large"),
-                            "처리 방법": st.column_config.SelectboxColumn(
-                                options=retry_actions, required=True, width="medium",
-                                help="실패한 대상을 어떻게 처리할지 선택하세요.",
-                            ),
-                            "검색할 주소": st.column_config.TextColumn(
-                                width="large",
-                                help=("재분석 또는 인근지 검색을 선택한 경우 정확한 도로명주소나 "
-                                      "지번주소를 입력하세요. 제외를 선택하면 이 칸은 사용하지 않습니다."),
-                            ),
-                            "실패 사유·시도내역": st.column_config.TextColumn(
-                                disabled=True, width="large",
-                            ),
-                        },
-                    )
+                        with st.container(border=True):
+                            st.markdown(f"**{retry_no}. {target_name}**")
+                            st.caption(f"기존 주소: {original_address}")
+                            retry_action = st.radio(
+                                "이 대상을 어떻게 처리할까요?",
+                                retry_actions,
+                                key=f"retry_action_{retry_key}_{original_index}",
+                            )
+                            if retry_action == "② 대상에서 제외":
+                                retry_address = ""
+                                st.caption("이 대상은 이번 노선 대상목록에서 제외됩니다.")
+                            else:
+                                address_label = (
+                                    "수정한 주소 입력"
+                                    if retry_action == "① 주소 수정 후 재분석"
+                                    else "가까운 건물·도로명 등 인근지 주소 입력"
+                                )
+                                retry_address = st.text_input(
+                                    address_label,
+                                    value=original_address,
+                                    key=f"retry_address_{retry_key}_{original_index}",
+                                    help="정확한 도로명주소 또는 지번주소를 입력하세요.",
+                                )
+                            if failure_detail:
+                                with st.expander("실패 사유·검색 시도내역 보기", expanded=False):
+                                    st.caption(failure_detail)
+
+                        retry_rows.append({
+                            "원본행": original_index,
+                            "대상명": target_name,
+                            "주소": original_address,
+                            "처리 방법": retry_action,
+                            "검색할 주소": retry_address,
+                            "실패 사유·시도내역": failure_detail,
+                        })
+
+                    edited_retry = pd.DataFrame(retry_rows)
 
                     used_coord_calls = int(st.session_state.get("coord_api_calls", 0))
                     remaining_coord_calls = max(0, API_CALL_LIMIT - used_coord_calls)
@@ -2574,7 +2591,7 @@ with page_basic:
                         f"✅ 실패 {fail_early}건 선택사항 적용",
                         type="primary",
                         use_container_width=True,
-                        help="위 표에서 선택한 재분석·제외·인근지 검색 방법을 실패 대상에 적용합니다.",
+                        help="각 대상 카드에서 선택한 재분석·제외·인근지 검색 방법을 적용합니다.",
                     ):
                         updated_coords = saved_early.copy()
                         retry_counter = {"calls": 0}
