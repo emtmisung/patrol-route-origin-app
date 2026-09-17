@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: transparent; font-family: Arial, "Noto Sans KR", sans-serif; }
+    button {
+      width: 100%; min-height: 42px; padding: 9px 14px; border: 1px solid #2f7d57;
+      border-radius: 8px; background: linear-gradient(135deg, #238553, #17683f);
+      color: #fff; font-size: 16px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(23, 104, 63, .18);
+    }
+    button:hover { filter: brightness(1.04); }
+    button:disabled { cursor: wait; opacity: .68; }
+    #status { min-height: 17px; margin-top: 4px; color: #607064; font-size: 12px; line-height: 1.25; }
+    #status.error { color: #b23a32; }
+    #status.success { color: #17683f; }
+  </style>
+</head>
+<body>
+  <button id="locate" type="button">📍 현 위치 조회</button>
+  <div id="status">휴대폰에서는 위치 권한을 허용해 주세요.</div>
+  <script>
+    const button = document.getElementById("locate");
+    const statusBox = document.getElementById("status");
+
+    function send(type, extra = {}) {
+      window.parent.postMessage({ isStreamlitMessage: true, type, ...extra }, "*");
+    }
+
+    function setValue(value) {
+      send("streamlit:setComponentValue", { value });
+    }
+
+    function setStatus(text, className = "") {
+      statusBox.textContent = text;
+      statusBox.className = className;
+      send("streamlit:setFrameHeight", { height: 65 });
+    }
+
+    function errorMessage(error) {
+      if (error && error.code === 1) return "위치 권한이 차단되었습니다. 브라우저 설정에서 허용해 주세요.";
+      if (error && error.code === 2) return "현재 위치 정보를 찾지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      if (error && error.code === 3) return "위치 확인 시간이 초과되었습니다. 다시 눌러주세요.";
+      return "현재 위치를 확인하지 못했습니다.";
+    }
+
+    button.addEventListener("click", () => {
+      const requestId = Date.now();
+      if (!navigator.geolocation) {
+        const message = "이 브라우저에서는 현재 위치 조회를 지원하지 않습니다.";
+        setStatus(message, "error");
+        setValue({ status: "error", message, request_id: requestId });
+        return;
+      }
+      button.disabled = true;
+      button.textContent = "📍 위치 확인 중…";
+      setStatus("브라우저의 위치 권한 요청을 확인해 주세요.");
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          const accuracy = position.coords.accuracy;
+          setStatus(`현재 위치 확인 완료 · 정확도 약 ${Math.round(accuracy)}m`, "success");
+          setValue({
+            status: "ok",
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy,
+            request_id: requestId
+          });
+          button.disabled = false;
+          button.textContent = "📍 현 위치 다시 조회";
+        },
+        error => {
+          const message = errorMessage(error);
+          setStatus(message, "error");
+          setValue({ status: "error", message, request_id: requestId });
+          button.disabled = false;
+          button.textContent = "📍 현 위치 다시 조회";
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+      );
+    });
+
+    window.addEventListener("message", event => {
+      if (event.data && event.data.type === "streamlit:render") {
+        send("streamlit:setFrameHeight", { height: 65 });
+      }
+    });
+
+    send("streamlit:componentReady", { apiVersion: 1 });
+    send("streamlit:setFrameHeight", { height: 65 });
+  </script>
+</body>
+</html>
