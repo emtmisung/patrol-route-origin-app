@@ -1253,6 +1253,46 @@ def build_distribution_map(coords_df, station=None):
     return distribution_map
 
 
+def manual_map_start(coords_df, failed_address, station_lat=None, station_lng=None):
+    """실패 주소의 도로·읍면동·시군구와 같은 확인 좌표를 찾아 지도 시작점을 정한다."""
+    valid = coords_df.dropna(subset=["위도", "경도"]).copy()
+    normalized_address = re.sub(r"\s+", " ", str(failed_address or "")).strip()
+    address_tokens = normalized_address.split()
+    road_tokens = list(dict.fromkeys(
+        [token for token in address_tokens if token.endswith(("로", "길"))]
+        + re.findall(r"[가-힣0-9]+(?:로|길)(?=\s*\d|\s|$)", normalized_address)
+    ))
+    search_levels = [
+        ("도로명", road_tokens, 15),
+        ("읍·면·동", [token for token in address_tokens if token.endswith(("읍", "면", "동", "리"))], 14),
+        ("시·군·구", [token for token in address_tokens if token.endswith(("시", "군", "구"))], 12),
+    ]
+
+    if not valid.empty:
+        valid_addresses = valid["주소"].fillna("").astype(str)
+        for level_name, tokens, zoom in search_levels:
+            for token in reversed(tokens):
+                matched = valid[valid_addresses.str.contains(re.escape(token), regex=True)]
+                if not matched.empty:
+                    return (
+                        float(matched["위도"].astype(float).mean()),
+                        float(matched["경도"].astype(float).mean()),
+                        zoom,
+                        f"{token} 주변({level_name} 일치 대상 기준)",
+                    )
+
+        return (
+            float(valid["위도"].astype(float).mean()),
+            float(valid["경도"].astype(float).mean()),
+            12,
+            "좌표 확인 대상의 전체 분포 중심",
+        )
+
+    if station_lat is not None and station_lng is not None:
+        return float(station_lat), float(station_lng), 12, "출발지 주변"
+    return 36.0, 128.0, 7, "대한민국 중심"
+
+
 def kakao_url(name, lat, lng):
     """카카오맵 길안내 링크 (공백·괄호가 있어도 깨지지 않도록 인코딩)."""
     return ("https://map.kakao.com/link/to/"
@@ -2654,16 +2694,19 @@ with page_basic:
                             "사용자가 누른 지점만 좌표로 저장하며 임의 좌표는 자동 적용하지 않습니다."
                         )
                         valid_coords = saved_early.dropna(subset=["위도", "경도"])
-                        if not valid_coords.empty:
-                            center_lat = float(valid_coords["위도"].astype(float).mean())
-                            center_lng = float(valid_coords["경도"].astype(float).mean())
-                        elif station_lat is not None and station_lng is not None:
-                            center_lat, center_lng = float(station_lat), float(station_lng)
-                        else:
-                            center_lat, center_lng = 36.0, 128.0
+                        center_lat, center_lng, start_zoom, center_reason = manual_map_start(
+                            saved_early,
+                            original_address,
+                            station_lat,
+                            station_lng,
+                        )
+                        st.caption(
+                            f"🧭 {center_reason}으로 지도를 열었습니다. "
+                            "이 시작점은 위치를 찾기 위한 화면 기준이며 대상 좌표로 저장되지 않습니다."
+                        )
 
                         manual_map = folium.Map(
-                            location=[center_lat, center_lng], zoom_start=12,
+                            location=[center_lat, center_lng], zoom_start=start_zoom,
                             control_scale=True,
                         )
                         for _, known_row in valid_coords.iterrows():
