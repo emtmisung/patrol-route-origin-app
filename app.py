@@ -2541,110 +2541,77 @@ with page_basic:
                     st.warning(
                         f"⚠️ 좌표 검색 완료 · 성공 {len(saved_early)-fail_early}건 · "
                         f"**실패 {fail_early}건**\n\n"
-                        f"실패한 {fail_early}건을 그대로 두지 말고, 아래에서 대상별로 "
-                        "**① 주소 수정 후 재분석 · ② 대상에서 제외 · ③ 인근지 주소로 검색** 중 "
-                        "하나를 선택한 뒤 적용 버튼을 눌러주세요."
+                        "아래에서 실패 대상을 하나씩 선택해 처리하세요. 한 대상의 처리가 끝나면 "
+                        "목록에서 빠지고 다음 실패 대상으로 이어집니다."
                     )
-                    st.markdown("#### 🔁 실패 대상 처리 방법 선택")
-                    st.info(
-                        "각 실패 대상의 **처리 방법**을 선택하세요. 재분석이나 인근지 검색을 선택하면 "
-                        "바로 아래 나타나는 **검색할 주소**를 확인·수정하고, 제외를 선택하면 주소는 입력하지 않아도 됩니다."
-                    )
-                    retry_actions = [
-                        "① 주소 수정 후 재분석",
-                        "② 대상에서 제외",
-                        "③ 인근지 주소로 검색",
-                    ]
+                    st.markdown("#### 🔁 실패 대상 하나씩 처리")
                     failed_indexes = saved_early.index[saved_early["위도"].isna()].tolist()
                     retry_key = hashlib.sha256(
                         repr(coord_signature).encode("utf-8"),
                     ).hexdigest()[:12]
-                    retry_rows = []
-                    for retry_no, original_index in enumerate(failed_indexes, start=1):
-                        failed_row = saved_early.loc[original_index]
-                        target_name = str(failed_row.get("대상명", "")).strip()
-                        original_address = str(failed_row.get("주소", "")).strip()
-                        failure_detail = str(failed_row.get("비고", "")).strip()
+                    selected_failed_key = f"selected_failed_target_{retry_key}"
+                    if st.session_state.get(selected_failed_key) not in failed_indexes:
+                        st.session_state.pop(selected_failed_key, None)
+                    selected_failed_index = st.selectbox(
+                        "처리할 실패 대상",
+                        options=failed_indexes,
+                        format_func=lambda row_index: (
+                            f"{saved_early.at[row_index, '대상명']} · "
+                            f"{saved_early.at[row_index, '주소']}"
+                        ),
+                        key=selected_failed_key,
+                    )
+                    failed_row = saved_early.loc[selected_failed_index]
+                    target_name = str(failed_row.get("대상명", "")).strip()
+                    original_address = str(failed_row.get("주소", "")).strip()
+                    failure_detail = str(failed_row.get("비고", "")).strip()
 
-                        with st.container(border=True):
-                            st.markdown(f"**{retry_no}. {target_name}**")
-                            st.caption(f"기존 주소: {original_address}")
-                            retry_action = st.radio(
-                                "이 대상을 어떻게 처리할까요?",
-                                retry_actions,
-                                key=f"retry_action_{retry_key}_{original_index}",
-                            )
-                            if retry_action == "② 대상에서 제외":
-                                retry_address = ""
-                                st.caption("이 대상은 이번 노선 대상목록에서 제외됩니다.")
-                            else:
-                                address_label = (
-                                    "수정한 주소 입력"
-                                    if retry_action == "① 주소 수정 후 재분석"
-                                    else "가까운 건물·도로명 등 인근지 주소 입력"
-                                )
-                                retry_address = st.text_input(
-                                    address_label,
-                                    value=original_address,
-                                    key=f"retry_address_{retry_key}_{original_index}",
-                                    help="정확한 도로명주소 또는 지번주소를 입력하세요.",
-                                )
-                            if failure_detail:
-                                with st.expander("실패 사유·검색 시도내역 보기", expanded=False):
-                                    st.caption(failure_detail)
-
-                        retry_rows.append({
-                            "원본행": original_index,
-                            "대상명": target_name,
-                            "주소": original_address,
-                            "처리 방법": retry_action,
-                            "검색할 주소": retry_address,
-                            "실패 사유·시도내역": failure_detail,
-                        })
-
-                    edited_retry = pd.DataFrame(retry_rows)
+                    st.markdown(f"**선택 대상:** {target_name}")
+                    st.caption(f"현재 주소: {original_address}")
+                    retry_action = st.radio(
+                        "처리 방법",
+                        ["① 주소 수정 후 재검색", "② 지도에서 실제 위치 찍기", "③ 이번 대상 제외"],
+                        key=f"single_retry_action_{retry_key}_{selected_failed_index}",
+                    )
+                    if failure_detail:
+                        with st.expander("실패 사유·검색 시도내역 보기", expanded=False):
+                            st.caption(failure_detail)
 
                     used_coord_calls = int(st.session_state.get("coord_api_calls", 0))
                     remaining_coord_calls = max(0, API_CALL_LIMIT - used_coord_calls)
-                    if remaining_coord_calls == 0:
-                        st.warning(
-                            "API 호출 한도에 도달해 주소 재검색은 할 수 없습니다. "
-                            "② 대상에서 제외는 적용할 수 있습니다."
+
+                    def save_coordinate_resolution(updated_coords, message, level="success", api_calls=None):
+                        total_calls = used_coord_calls if api_calls is None else int(api_calls)
+                        updated_coords.attrs["api_calls_used"] = total_calls
+                        st.session_state["coords_df"] = updated_coords
+                        st.session_state["coord_api_calls"] = total_calls
+                        st.session_state["coord_retry_message"] = message
+                        st.session_state["coord_retry_message_level"] = level
+                        for stale_key in ("mobile_transfer_qr", "route_results", "far_points", "meta"):
+                            st.session_state.pop(stale_key, None)
+                        st.rerun()
+
+                    if retry_action == "① 주소 수정 후 재검색":
+                        retry_address = st.text_input(
+                            "수정한 주소",
+                            value=original_address,
+                            key=f"single_retry_address_{retry_key}_{selected_failed_index}",
+                            help="정확한 도로명주소 또는 지번주소를 입력하세요.",
                         )
+                        if remaining_coord_calls == 0:
+                            st.warning("API 호출 한도에 도달해 주소 재검색은 할 수 없습니다.")
+                        if st.button(
+                            "🔎 이 주소로 다시 검색",
+                            type="primary",
+                            use_container_width=True,
+                            disabled=(remaining_coord_calls == 0),
+                        ):
+                            retry_counter = {"calls": 0}
 
-                    if st.button(
-                        f"✅ 실패 {fail_early}건 선택사항 적용",
-                        type="primary",
-                        use_container_width=True,
-                        help="각 대상 카드에서 선택한 재분석·제외·인근지 검색 방법을 적용합니다.",
-                    ):
-                        updated_coords = saved_early.copy()
-                        retry_counter = {"calls": 0}
-                        retry_success = 0
-                        retry_excluded = 0
-                        exclude_indexes = []
+                            def count_retry_call():
+                                retry_counter["calls"] += 1
 
-                        def count_retry_call():
-                            retry_counter["calls"] += 1
-
-                        with st.spinner("실패건의 주소를 다시 검색하고 있습니다..."):
-                            for _, retry_row in edited_retry.iterrows():
-                                original_index = int(retry_row["원본행"])
-                                retry_action = str(retry_row.get("처리 방법", retry_actions[0])).strip()
-                                retry_address = str(retry_row.get("검색할 주소", "")).strip()
-                                target_name = str(retry_row.get("대상명", "")).strip()
-
-                                if retry_action == "② 대상에서 제외":
-                                    exclude_indexes.append(original_index)
-                                    retry_excluded += 1
-                                    continue
-
-                                if not retry_address or retry_address.lower() == "nan":
-                                    updated_coords.at[original_index, "비고"] = (
-                                        "검색할 주소가 비어 있어 처리하지 않았습니다."
-                                    )
-                                    continue
-
+                            with st.spinner("수정한 주소를 검색하고 있습니다..."):
                                 lat, lng, used_q, used_why, tried = geocode_with_fallback(
                                     retry_address,
                                     target_name,
@@ -2653,48 +2620,122 @@ with page_basic:
                                         used_coord_calls + retry_counter["calls"] >= API_CALL_LIMIT
                                     ),
                                 )
-                                updated_coords.at[original_index, "주소"] = retry_address
-                                if lat is None:
-                                    updated_coords.at[original_index, "상태"] = "❌ 재검색 실패"
-                                    updated_coords.at[original_index, "비고"] = (
-                                        geocode_failure_reason(tried) + " | 시도: " + " / ".join(tried)
-                                    )
-                                else:
-                                    updated_coords.at[original_index, "위도"] = lat
-                                    updated_coords.at[original_index, "경도"] = lng
-                                    old_address = str(saved_early.at[original_index, "주소"])
-                                    if retry_action == "③ 인근지 주소로 검색":
-                                        updated_coords.at[original_index, "상태"] = "📍 인근 대체주소 좌표"
-                                        updated_coords.at[original_index, "비고"] = (
-                                            f"실제 대상의 원주소: {old_address} | "
-                                            f"좌표 검색에 사용한 인근 대체주소: {retry_address}"
-                                        )
-                                    else:
-                                        updated_coords.at[original_index, "상태"] = "✅ 주소 변경 후 확인"
-                                        updated_coords.at[original_index, "비고"] = (
-                                            f"기존 주소: {old_address} → 변경 주소: {retry_address}"
-                                            + ("" if used_why == "원본 주소" else f" | {used_why} → {used_q}")
-                                        )
-                                    retry_success += 1
+                            updated_coords = saved_early.copy()
+                            updated_coords.at[selected_failed_index, "주소"] = retry_address
+                            total_calls = used_coord_calls + retry_counter["calls"]
+                            if lat is None:
+                                updated_coords.at[selected_failed_index, "상태"] = "❌ 재검색 실패"
+                                updated_coords.at[selected_failed_index, "비고"] = (
+                                    geocode_failure_reason(tried) + " | 시도: " + " / ".join(tried)
+                                )
+                                save_coordinate_resolution(
+                                    updated_coords,
+                                    f"{target_name} 재검색에 실패했습니다. 주소를 다시 확인하거나 지도에서 위치를 찍어주세요.",
+                                    level="warning",
+                                    api_calls=total_calls,
+                                )
+                            old_address = str(saved_early.at[selected_failed_index, "주소"])
+                            updated_coords.at[selected_failed_index, "위도"] = lat
+                            updated_coords.at[selected_failed_index, "경도"] = lng
+                            updated_coords.at[selected_failed_index, "상태"] = "✅ 주소 변경 후 확인"
+                            updated_coords.at[selected_failed_index, "비고"] = (
+                                f"기존 주소: {old_address} → 변경 주소: {retry_address}"
+                                + ("" if used_why == "원본 주소" else f" | {used_why} → {used_q}")
+                            )
+                            save_coordinate_resolution(
+                                updated_coords,
+                                f"{target_name}의 좌표를 다시 찾았습니다. 남은 실패 {fail_early-1}건",
+                                api_calls=total_calls,
+                            )
 
-                        if exclude_indexes:
-                            updated_coords = updated_coords.drop(index=exclude_indexes).reset_index(drop=True)
-                        total_coord_calls = used_coord_calls + retry_counter["calls"]
-                        updated_coords.attrs["api_calls_used"] = total_coord_calls
-                        st.session_state["coords_df"] = updated_coords
-                        st.session_state["coord_api_calls"] = total_coord_calls
-                        st.session_state["coord_retry_message"] = (
-                            f"재검색 완료 · 성공 {retry_success}건 · "
-                            f"대상 제외 {retry_excluded}건 · "
-                            f"미처리·실패 {len(edited_retry) - retry_success - retry_excluded}건"
+                    elif retry_action == "② 지도에서 실제 위치 찍기":
+                        st.info(
+                            "지도를 확대·이동한 뒤 실제 대상 위치를 한 번 누르세요. "
+                            "사용자가 누른 지점만 좌표로 저장하며 임의 좌표는 자동 적용하지 않습니다."
                         )
-                        st.rerun()
+                        valid_coords = saved_early.dropna(subset=["위도", "경도"])
+                        if not valid_coords.empty:
+                            center_lat = float(valid_coords["위도"].astype(float).mean())
+                            center_lng = float(valid_coords["경도"].astype(float).mean())
+                        elif station_lat is not None and station_lng is not None:
+                            center_lat, center_lng = float(station_lat), float(station_lng)
+                        else:
+                            center_lat, center_lng = 36.0, 128.0
+
+                        manual_map = folium.Map(
+                            location=[center_lat, center_lng], zoom_start=12,
+                            control_scale=True,
+                        )
+                        for _, known_row in valid_coords.iterrows():
+                            folium.CircleMarker(
+                                [float(known_row["위도"]), float(known_row["경도"])],
+                                radius=3, color="#2f78a8", fill=True, fill_opacity=0.65,
+                                tooltip=str(known_row.get("대상명", "")),
+                            ).add_to(manual_map)
+                        if station_lat is not None and station_lng is not None:
+                            folium.Marker(
+                                [float(station_lat), float(station_lng)],
+                                tooltip="출발지",
+                                icon=folium.Icon(color="red", icon="home"),
+                            ).add_to(manual_map)
+                        folium.LatLngPopup().add_to(manual_map)
+                        manual_map_state = st_folium(
+                            manual_map,
+                            height=380,
+                            use_container_width=True,
+                            key=f"manual_location_map_{retry_key}_{selected_failed_index}",
+                            returned_objects=["last_clicked"],
+                        )
+                        clicked_point = (manual_map_state or {}).get("last_clicked")
+                        if clicked_point:
+                            clicked_lat = float(clicked_point["lat"])
+                            clicked_lng = float(clicked_point["lng"])
+                            st.success(
+                                f"선택한 위치 · 위도 {clicked_lat:.7f} · 경도 {clicked_lng:.7f}"
+                            )
+                            if st.button(
+                                "📍 이 위치로 확정",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                updated_coords = saved_early.copy()
+                                updated_coords.at[selected_failed_index, "위도"] = clicked_lat
+                                updated_coords.at[selected_failed_index, "경도"] = clicked_lng
+                                updated_coords.at[selected_failed_index, "상태"] = "📍 지도에서 직접 지정"
+                                updated_coords.at[selected_failed_index, "비고"] = (
+                                    f"원주소: {original_address} | 사용자가 지도에서 직접 지정한 좌표 · 현장 확인 완료"
+                                )
+                                save_coordinate_resolution(
+                                    updated_coords,
+                                    f"{target_name}의 위치를 지도에서 확정했습니다. 남은 실패 {fail_early-1}건",
+                                )
+                        else:
+                            st.caption("아직 위치를 선택하지 않았습니다. 지도에서 실제 위치를 눌러주세요.")
+
+                    else:
+                        st.warning(f"{target_name}을 이번 노선 대상목록에서 제외합니다.")
+                        if st.button(
+                            "🗑️ 이 대상 제외",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            updated_coords = saved_early.drop(index=[selected_failed_index]).reset_index(drop=True)
+                            save_coordinate_resolution(
+                                updated_coords,
+                                f"{target_name}을 대상에서 제외했습니다. 남은 실패 {fail_early-1}건",
+                            )
                 else:
                     st.success(f"✅ 좌표 확인 완료 · {len(saved_early)}건 모두 확인되었습니다.")
 
                 retry_message = st.session_state.pop("coord_retry_message", None)
                 if retry_message:
-                    st.success(f"✅ {retry_message}")
+                    retry_message_level = st.session_state.pop(
+                        "coord_retry_message_level", "success",
+                    )
+                    if retry_message_level == "warning":
+                        st.warning(retry_message)
+                    else:
+                        st.success(f"✅ {retry_message}")
 
                 distribution_map = build_distribution_map(
                     saved_early,
@@ -3322,7 +3363,7 @@ with page_build:
                 if fail_n:
                     st.error(
                         f"❌ {fail_n}건은 좌표를 찾지 못했습니다. 1단계의 **좌표 실패건 처리**에서 "
-                        "주소 수정 후 재분석·대상에서 제외·인근지 주소로 검색 중 하나를 선택하거나, "
+                        "주소 수정 후 재검색·지도에서 실제 위치 찍기·대상 제외 중 하나를 선택하거나, "
                         "아래 표의 위도·경도 칸에 직접 입력하세요."
                     )
                 else:
@@ -3363,7 +3404,7 @@ with page_build:
             if n_ready < len(edited):
                 safety_warning(
                     f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다. "
-                    "1단계의 좌표 실패건 처리에서 재검색하거나 제외 여부를 선택하세요.",
+                    "1단계의 좌표 실패건 처리에서 재검색·지도 지정·제외 중 하나를 선택하세요.",
                     title="좌표 없는 대상 안내",
                 )
 
