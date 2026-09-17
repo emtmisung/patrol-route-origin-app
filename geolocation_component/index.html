@@ -21,7 +21,7 @@
 </head>
 <body>
   <button id="locate" type="button">📍 현 위치 조회</button>
-  <div id="status">휴대폰에서는 위치 권한을 허용해 주세요.</div>
+  <div id="status">휴대폰·야외 사용 권장 · PC·실내에서는 부정확할 수 있습니다.</div>
   <script>
     const button = document.getElementById("locate");
     const statusBox = document.getElementById("status");
@@ -37,7 +37,7 @@
     function setStatus(text, className = "") {
       statusBox.textContent = text;
       statusBox.className = className;
-      send("streamlit:setFrameHeight", { height: 65 });
+      send("streamlit:setFrameHeight", { height: 84 });
     }
 
     function errorMessage(error) {
@@ -85,12 +85,12 @@
 
     window.addEventListener("message", event => {
       if (event.data && event.data.type === "streamlit:render") {
-        send("streamlit:setFrameHeight", { height: 65 });
+        send("streamlit:setFrameHeight", { height: 84 });
       }
     });
 
     send("streamlit:componentReady", { apiVersion: 1 });
-    send("streamlit:setFrameHeight", { height: 65 });
+    send("streamlit:setFrameHeight", { height: 84 });
   </script>
 </body>
 </html>
