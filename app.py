@@ -2013,7 +2013,7 @@ with page_basic:
         if "patrol_title" not in st.session_state:
             st.session_state["patrol_title"] = "예시) 소방안전 순찰노선 - 성주군 일원"
         patrol_title = st.text_input("순찰 제목", key="patrol_title")
-        station_search_area, current_location_area = st.columns(2, gap="medium")
+        station_search_area, current_location_area = st.columns([3, 1], gap="medium")
         with station_search_area:
             station_input_col, station_search_col = st.columns([3, 1])
             with station_input_col:
@@ -2026,13 +2026,13 @@ with page_basic:
             with station_search_col:
                 st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
                 search_station = st.button(
-                    "🔎 주소검색", key="search_departure_department_btn",
+                    "🔎 주소조회", key="search_departure_department_btn",
                     type="primary", use_container_width=True,
                 )
 
         with current_location_area:
             st.markdown(
-                "<div style='font-size:.95rem;font-weight:650;margin-bottom:.38rem;'>현 위치 설정</div>",
+                "<div style='font-size:.95rem;font-weight:650;margin-bottom:.38rem;'>현 위치 설정(야외용)</div>",
                 unsafe_allow_html=True,
             )
             current_location = geolocation_component(
@@ -2075,6 +2075,7 @@ with page_basic:
                         "address": f"휴대폰 GPS로 확인한 현재 위치{accuracy_text}",
                         "lat": found_lat,
                         "lng": found_lng,
+                        "accuracy": float(accuracy) if accuracy is not None else None,
                     }
                     for stale_key in ("station", "route_results", "far_points", "meta"):
                         st.session_state.pop(stale_key, None)
@@ -2090,8 +2091,14 @@ with page_basic:
             station_address = station_result["address"]
             station_lat = station_result["lat"]
             station_lng = station_result["lng"]
+            station_accuracy = station_result.get("accuracy")
             connected_label = "출발지가 설정되었습니다" if station_name == "현 위치" else "출발부서 주소와 좌표가 연결되었습니다"
             st.success(f"✅ {connected_label}: {station_name}")
+            if station_name == "현 위치" and (station_accuracy is None or station_accuracy > 100):
+                st.warning(
+                    "PC 또는 실내에서는 Wi-Fi·네트워크 기반으로 위치가 잡혀 실제 위치와 다를 수 있습니다. "
+                    "사무실에서는 왼쪽의 출발부서 주소조회를 사용하고, 현 위치 조회는 휴대폰을 이용한 야외 순찰 때 사용하세요."
+                )
             result_c1, result_c2, result_c3 = st.columns([2.2, 1, 1])
             result_c1.text_input("출발지 정보", value=station_address, disabled=True)
             result_c2.text_input("위도", value=f"{station_lat:.7f}", disabled=True)
