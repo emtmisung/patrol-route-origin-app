@@ -21,6 +21,7 @@ import qrcode
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
+from branca.element import Element
 from cryptography.fernet import Fernet, InvalidToken
 from streamlit_local_storage import LocalStorage
 from streamlit_folium import st_folium
@@ -54,6 +55,27 @@ ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보
 API_CALL_LIMIT = 3000     # 좌표검색과 노선계산을 합친 작업당 NCP 호출 상한
 
 SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
+
+SAMPLE_TARGETS = [
+    ("차동골 마을회관", "경상북도 성주군 성주읍 성산1리 1805"),
+    ("모산 마을회관", "경상북도 성주군 성주읍 삼산리 245"),
+    ("유월2리 마을회관", "경상북도 성주군 월항면 유월2리 96-1"),
+    ("백인 마을회관", "경상북도 성주군 월항면 안포1리 540-1"),
+    ("안포4리 마을회관", "경상북도 성주군 월항면 안포4리 445"),
+    ("댓기 마을회관", "경상북도 성주군 성주읍 학산1리 525-3"),
+    ("연산 마을회관", "경상북도 성주군 성주읍 금산1리 912-3"),
+    ("종로 마을회관", "경상북도 성주군 성주읍 경산8리 12-1"),
+    ("말배미 마을회관", "경상북도 성주군 성주읍 학산2리 297-1"),
+    ("작은배리 마을회관", "경상북도 성주군 성주읍 경산5리 761-37"),
+    ("교촌 마을회관", "경상북도 성주군 성주읍 예산2리 215-1"),
+    ("목우물 마을회관", "경상북도 성주군 성주읍 백전1리 241"),
+    ("모방 마을회관", "경상북도 성주군 월항면 지방리 156-1"),
+    ("원동경로당", "경상북도 성주군 월항면 칠선1길 51"),
+    ("예동 마을회관", "경상북도 성주군 성주읍 예산리 393-6"),
+    ("용산2리 마을회관", "경상북도 성주군 성주읍 용산2리 1058-1"),
+    ("시뫼실 마을회관", "경상북도 성주군 성주읍 성산2리 1174-1"),
+    ("부인 마을회관", "경상북도 성주군 월항면 인촌리 299"),
+]
 BROWSER_DRAFT_LEGACY_KEY = "paseru_last_work_v1"
 BROWSER_DRAFT_KEY_PREFIX = "paseru_saved_work_v1_"
 BROWSER_DRAFT_DAYS = 7
@@ -609,21 +631,8 @@ def read_uploaded_table(file_bytes, file_name):
 
 
 def load_sample_targets():
-    """예시 원본에서 업무 구분과 출발부서를 제외한 실제 대상 20곳만 만든다."""
-    sample_df = pd.read_excel(SAMPLE_XLSX)
-    required_columns = {"연번", "주소지", "정제_주소"}
-    if not required_columns.issubset(sample_df.columns):
-        return sample_df
-
-    sequence = pd.to_numeric(sample_df["연번"], errors="coerce")
-    targets = sample_df.loc[sequence > 0, ["주소지", "정제_주소"]].copy()
-    targets["대상명"] = (
-        targets["주소지"].fillna("").astype(str)
-        .str.replace(r"\s*\([^)]*\)\s*$", "", regex=True)
-        .str.strip()
-    )
-    targets["주소"] = targets["정제_주소"].fillna("").astype(str).str.strip()
-    return targets[["대상명", "주소"]].reset_index(drop=True)
+    """예시 원본에서 업무 구분과 출발부서를 제외한 평가용 대상 18곳만 만든다."""
+    return pd.DataFrame(SAMPLE_TARGETS, columns=["대상명", "주소"])
 
 
 def find_name_column_index(columns):
@@ -1282,6 +1291,17 @@ def manual_map_start(coords_df, failed_address, station_lat=None, station_lng=No
         ("읍·면·동", [token for token in address_tokens if token.endswith(("읍", "면", "동", "리"))], 14),
         ("시·군·구", [token for token in address_tokens if token.endswith(("시", "군", "구"))], 12),
     ]
+    broad_search_queries = []
+    for level_name, tokens, zoom in search_levels:
+        for token in reversed(tokens):
+            token_index = normalized_address.find(token)
+            if token_index >= 0:
+                query = normalized_address[:token_index + len(token)]
+            else:
+                query = " ".join(address_tokens[: address_tokens.index(token) + 1]) if token in address_tokens else token
+            query = re.sub(r"\s+", " ", query).strip()
+            if query and all(query != existing[0] for existing in broad_search_queries):
+                broad_search_queries.append((query, token, level_name, zoom))
 
     if not valid.empty:
         valid_addresses = valid["주소"].fillna("").astype(str)
@@ -1303,9 +1323,119 @@ def manual_map_start(coords_df, failed_address, station_lat=None, station_lng=No
             "좌표 확인 대상의 전체 분포 중심",
         )
 
+    for query, token, level_name, zoom in broad_search_queries:
+        lat, lng, status = geocode_once(query)
+        if status == "ok":
+            return lat, lng, zoom, f"{token} 주변({level_name} 주소 기준)"
+
     if station_lat is not None and station_lng is not None:
         return float(station_lat), float(station_lng), 12, "출발지 주변"
     return 36.0, 128.0, 7, "대한민국 중심"
+
+
+def add_manual_location_layer_buttons(map_obj, satellite_layer, normal_layer, road_layer, label_layer):
+    """위성찾기 지도에서 현장 사용자가 보기 방식을 크게 바꿀 수 있게 한다."""
+    map_name = map_obj.get_name()
+    satellite_name = satellite_layer.get_name()
+    normal_name = normal_layer.get_name()
+    road_name = road_layer.get_name()
+    label_name = label_layer.get_name()
+    control_style = """
+    <style>
+      .manual-map-switch {
+        background: rgba(255,255,255,.96);
+        border: 1px solid #9aa7b3;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.22);
+        padding: 7px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .manual-map-switch button {
+        appearance: none;
+        border: 1px solid #6f7d8a;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #1f2d3d;
+        font-family: Arial, 'Noto Sans KR', sans-serif;
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1.2;
+        padding: 9px 10px;
+        min-width: 118px;
+        cursor: pointer;
+      }
+      .manual-map-switch button.active {
+        background: #1f6fb2;
+        border-color: #18598f;
+        color: #ffffff;
+      }
+    </style>
+    """
+    control_script = f"""
+    <script>
+      (function() {{
+        var map = {map_name};
+        var satellite = {satellite_name};
+        var normal = {normal_name};
+        var roads = {road_name};
+        var labels = {label_name};
+        var buttons = {{}};
+
+        function setActive(mode) {{
+          Object.keys(buttons).forEach(function(key) {{
+            buttons[key].classList.toggle('active', key === mode);
+          }});
+        }}
+
+        function setManualMapMode(mode) {{
+          if (map.hasLayer(normal)) map.removeLayer(normal);
+          if (map.hasLayer(satellite)) map.removeLayer(satellite);
+          if (map.hasLayer(roads)) map.removeLayer(roads);
+          if (map.hasLayer(labels)) map.removeLayer(labels);
+
+          if (mode === 'normal') {{
+            map.addLayer(normal);
+          }} else {{
+            map.addLayer(satellite);
+            if (mode === 'hybrid') {{
+              map.addLayer(roads);
+              map.addLayer(labels);
+            }}
+          }}
+          setActive(mode);
+        }}
+
+        var Control = L.Control.extend({{
+          options: {{ position: 'topright' }},
+          onAdd: function() {{
+            var box = L.DomUtil.create('div', 'manual-map-switch');
+            L.DomEvent.disableClickPropagation(box);
+            [
+              ['hybrid', '위성+도로명'],
+              ['normal', '일반지도'],
+              ['satellite', '위성만 보기']
+            ].forEach(function(item) {{
+              var button = L.DomUtil.create('button', '', box);
+              button.type = 'button';
+              button.textContent = item[1];
+              buttons[item[0]] = button;
+              L.DomEvent.on(button, 'click', function(event) {{
+                L.DomEvent.stop(event);
+                setManualMapMode(item[0]);
+              }});
+            }});
+            return box;
+          }}
+        }});
+        map.addControl(new Control());
+        setManualMapMode('hybrid');
+      }})();
+    </script>
+    """
+    map_obj.get_root().html.add_child(Element(control_style))
+    map_obj.get_root().script.add_child(Element(control_script))
 
 
 def kakao_url(name, lat, lng):
@@ -2192,6 +2322,15 @@ with page_basic:
             station_lat = station_lng = None
 
         route_prefix = station_name
+        restored_df = st.session_state.get("browser_restored_df")
+
+        use_sample = st.checkbox(
+            "🧪 기능 확인용 예시 18건 불러오기 (성주군 주요 대상)",
+            value=(restored_df is None),
+            help="평가관이 별도 엑셀 파일 없이 바로 확인할 수 있도록 오류 1건만 남긴 평가용 목록을 불러옵니다.",
+        )
+        if use_sample:
+            st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
         st.markdown("**대상 목록 업로드**")
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
@@ -2359,9 +2498,6 @@ with page_basic:
                 unsafe_allow_html=True,
             )
 
-        restored_df = st.session_state.get("browser_restored_df")
-        use_sample = st.checkbox("🧪 기능 확인용 예시 20건 불러오기 (성주군 주요 대상)",
-                                 value=(uploaded is None and restored_df is None))
         if uploaded is None and not use_sample and restored_df is not None and len(restored_df):
             st.info(
                 f"💾 이 PC에 저장된 대상목록 {len(restored_df)}건을 사용하고 있습니다. "
@@ -2436,7 +2572,7 @@ with page_basic:
                 transfer_targets = minimum_transfer_targets(df)
                 transfer_content = browser_draft_content(
                     (
-                        "기능 확인용 예시 20건"
+                        "기능 확인용 예시 18건"
                         if using_sample
                         else st.session_state.get("browser_source_name") or "업로드 자료"
                     ),
@@ -2831,15 +2967,15 @@ with page_basic:
                             "이 시작점은 위치를 찾기 위한 화면 기준이며 대상 좌표로 저장되지 않습니다."
                         )
                         st.caption(
-                            "🛰️ 위성사진이 기본으로 표시됩니다. 건물 지붕을 확인해 실제 위치를 누르세요. "
-                            "오른쪽 위 지도선택 버튼에서 일반지도로 바꿀 수 있습니다."
+                            "🛰️ 처음에는 위성+도로명 지도로 열립니다. "
+                            "도로명과 주변 건물을 함께 확인한 뒤 실제 대상 위치를 누르세요."
                         )
 
                         manual_map = folium.Map(
                             location=[center_lat, center_lng], zoom_start=start_zoom,
                             tiles=None, control_scale=True,
                         )
-                        folium.TileLayer(
+                        satellite_layer = folium.TileLayer(
                             tiles=(
                                 "https://server.arcgisonline.com/ArcGIS/rest/services/"
                                 "World_Imagery/MapServer/tile/{z}/{y}/{x}"
@@ -2848,19 +2984,46 @@ with page_basic:
                                 "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, "
                                 "and the GIS User Community"
                             ),
-                            name="🛰️ 위성사진(건물 확인)",
+                            name="🛰️ 위성만 보기",
                             overlay=False,
                             control=True,
                             show=True,
                             max_zoom=20,
                         ).add_to(manual_map)
-                        folium.TileLayer(
+                        normal_layer = folium.TileLayer(
                             tiles="OpenStreetMap",
                             name="🗺️ 일반지도(도로 확인)",
                             overlay=False,
                             control=True,
                             show=False,
                         ).add_to(manual_map)
+                        road_layer = folium.TileLayer(
+                            tiles=(
+                                "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                                "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                            ),
+                            attr="Road labels © Esri",
+                            name="도로 표시",
+                            overlay=True,
+                            control=False,
+                            show=True,
+                            max_zoom=20,
+                        ).add_to(manual_map)
+                        label_layer = folium.TileLayer(
+                            tiles=(
+                                "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                                "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                            ),
+                            attr="Place labels © Esri",
+                            name="지명 표시",
+                            overlay=True,
+                            control=False,
+                            show=True,
+                            max_zoom=20,
+                        ).add_to(manual_map)
+                        add_manual_location_layer_buttons(
+                            manual_map, satellite_layer, normal_layer, road_layer, label_layer
+                        )
                         for _, known_row in valid_coords.iterrows():
                             folium.CircleMarker(
                                 [float(known_row["위도"]), float(known_row["경도"])],
@@ -2874,7 +3037,7 @@ with page_basic:
                                 icon=folium.Icon(color="red", icon="home"),
                             ).add_to(manual_map)
                         folium.LatLngPopup().add_to(manual_map)
-                        folium.LayerControl(position="topright", collapsed=True).add_to(manual_map)
+                        folium.LayerControl(position="topleft", collapsed=True).add_to(manual_map)
                         manual_map_state = st_folium(
                             manual_map,
                             height=380,
