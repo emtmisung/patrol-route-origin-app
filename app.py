@@ -1413,9 +1413,9 @@ def add_manual_location_layer_buttons(map_obj, satellite_layer, normal_layer, ro
             var box = L.DomUtil.create('div', 'manual-map-switch');
             L.DomEvent.disableClickPropagation(box);
             [
-              ['hybrid', '위성+도로명'],
-              ['normal', '일반지도'],
-              ['satellite', '위성만 보기']
+              ['normal', '일반지도(도로명)'],
+              ['hybrid', '위성+지명'],
+              ['satellite', '위성사진']
             ].forEach(function(item) {{
               var button = L.DomUtil.create('button', '', box);
               button.type = 'button';
@@ -1430,7 +1430,7 @@ def add_manual_location_layer_buttons(map_obj, satellite_layer, normal_layer, ro
           }}
         }});
         map.addControl(new Control());
-        setManualMapMode('hybrid');
+        setManualMapMode('normal');
       }})();
     </script>
     """
@@ -2967,8 +2967,8 @@ with page_basic:
                             "이 시작점은 위치를 찾기 위한 화면 기준이며 대상 좌표로 저장되지 않습니다."
                         )
                         st.caption(
-                            "🛰️ 처음에는 위성+도로명 지도로 열립니다. "
-                            "도로명과 주변 건물을 함께 확인한 뒤 실제 대상 위치를 누르세요."
+                            "🗺️ 처음에는 일반지도(도로명 확인용)로 열립니다. "
+                            "도로와 지명을 먼저 확인한 뒤, 필요하면 위성사진으로 바꿔 주변 건물을 확인하세요."
                         )
 
                         manual_map = folium.Map(
@@ -2987,7 +2987,7 @@ with page_basic:
                             name="🛰️ 위성만 보기",
                             overlay=False,
                             control=True,
-                            show=True,
+                            show=False,
                             max_zoom=20,
                         ).add_to(manual_map)
                         normal_layer = folium.TileLayer(
@@ -2995,7 +2995,7 @@ with page_basic:
                             name="🗺️ 일반지도(도로 확인)",
                             overlay=False,
                             control=True,
-                            show=False,
+                            show=True,
                         ).add_to(manual_map)
                         road_layer = folium.TileLayer(
                             tiles=(
