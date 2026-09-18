@@ -1414,7 +1414,7 @@ def add_manual_location_layer_buttons(map_obj, satellite_layer, normal_layer, ro
             L.DomEvent.disableClickPropagation(box);
             [
               ['normal', '일반지도(도로명)'],
-              ['hybrid', '위성+지명'],
+              ['hybrid', '위성+도로/지명'],
               ['satellite', '위성사진']
             ].forEach(function(item) {{
               var button = L.DomUtil.create('button', '', box);
@@ -2872,7 +2872,12 @@ with page_basic:
                     st.caption(f"현재 주소: {original_address}")
                     retry_action = st.radio(
                         "처리 방법",
-                        ["① 주소 수정 후 재검색", "② 지도에서 실제 위치 찍기", "③ 이번 대상 제외"],
+                        [
+                            "① 주소 수정 후 재검색",
+                            "② 좌표 직접입력",
+                            "③ 이번 대상 제외",
+                            "④ 지도에서 실제 위치 찍기",
+                        ],
                         key=f"single_retry_action_{retry_key}_{selected_failed_index}",
                     )
                     if failure_detail:
@@ -2932,7 +2937,7 @@ with page_basic:
                                 )
                                 save_coordinate_resolution(
                                     updated_coords,
-                                    f"{target_name} 재검색에 실패했습니다. 주소를 다시 확인하거나 지도에서 위치를 찍어주세요.",
+                                    f"{target_name} 재검색에 실패했습니다. 주소를 다시 확인하거나 좌표를 직접 입력해 주세요.",
                                     level="warning",
                                     api_calls=total_calls,
                                 )
@@ -2950,10 +2955,67 @@ with page_basic:
                                 api_calls=total_calls,
                             )
 
-                    elif retry_action == "② 지도에서 실제 위치 찍기":
+                    elif retry_action == "② 좌표 직접입력":
+                        st.info(
+                            "소화전처럼 기존 관리자료에 좌표가 있는 대상은 여기서 위도·경도를 바로 입력하세요. "
+                            "입력한 좌표는 주소검색 결과보다 우선 적용됩니다."
+                        )
+                        st.caption("예: 위도 35.9690000 / 경도 128.2834000")
+                        coord_col1, coord_col2 = st.columns(2)
+                        with coord_col1:
+                            manual_lat = st.number_input(
+                                "위도",
+                                min_value=30.0,
+                                max_value=45.0,
+                                value=None,
+                                step=0.000001,
+                                format="%.7f",
+                                key=f"manual_lat_{retry_key}_{selected_failed_index}",
+                                placeholder="35.9690000",
+                            )
+                        with coord_col2:
+                            manual_lng = st.number_input(
+                                "경도",
+                                min_value=120.0,
+                                max_value=135.0,
+                                value=None,
+                                step=0.000001,
+                                format="%.7f",
+                                key=f"manual_lng_{retry_key}_{selected_failed_index}",
+                                placeholder="128.2834000",
+                            )
+                        naver_query = quote(f"{target_name} {original_address}".strip())
+                        st.link_button(
+                            "네이버 지도에서 주소·지번 확인",
+                            f"https://map.naver.com/p/search/{naver_query}",
+                            use_container_width=True,
+                        )
+                        if st.button(
+                            "좌표 직접입력으로 확정",
+                            type="primary",
+                            use_container_width=True,
+                            disabled=(manual_lat is None or manual_lng is None),
+                        ):
+                            updated_coords = saved_early.copy()
+                            updated_coords.at[selected_failed_index, "위도"] = float(manual_lat)
+                            updated_coords.at[selected_failed_index, "경도"] = float(manual_lng)
+                            updated_coords.at[selected_failed_index, "상태"] = "✍️ 좌표 직접입력"
+                            updated_coords.at[selected_failed_index, "비고"] = (
+                                f"원주소: {original_address} | 사용자가 관리자료 좌표를 직접 입력"
+                            )
+                            save_coordinate_resolution(
+                                updated_coords,
+                                f"{target_name}의 좌표를 직접 입력했습니다. 남은 실패 {fail_early-1}건",
+                            )
+
+                    elif retry_action == "④ 지도에서 실제 위치 찍기":
                         st.info(
                             "지도를 확대·이동한 뒤 실제 대상 위치를 한 번 누르세요. "
                             "사용자가 누른 지점만 좌표로 저장하며 임의 좌표는 자동 적용하지 않습니다."
+                        )
+                        st.warning(
+                            "현재 내장 지도는 네이버 지도처럼 지번·지형·위성정보가 한꺼번에 잘 보이지 않을 수 있습니다. "
+                            "위치를 확신하기 어려우면 좌표 직접입력이나 대상 제외를 사용하세요."
                         )
                         valid_coords = saved_early.dropna(subset=["위도", "경도"])
                         center_lat, center_lng, start_zoom, center_reason = manual_map_start(
@@ -2968,7 +3030,7 @@ with page_basic:
                         )
                         st.caption(
                             "🗺️ 처음에는 일반지도(도로명 확인용)로 열립니다. "
-                            "도로와 지명을 먼저 확인한 뒤, 필요하면 위성사진으로 바꿔 주변 건물을 확인하세요."
+                            "도로와 지명을 먼저 확인한 뒤, 필요하면 위성+도로/지명 또는 위성사진으로 바꿔 확인하세요."
                         )
 
                         manual_map = folium.Map(
@@ -3722,7 +3784,7 @@ with page_build:
                 if fail_n:
                     st.error(
                         f"❌ {fail_n}건은 좌표를 찾지 못했습니다. 1단계의 **좌표 실패건 처리**에서 "
-                        "주소 수정 후 재검색·지도에서 실제 위치 찍기·대상 제외 중 하나를 선택하거나, "
+                        "주소 수정 후 재검색·좌표 직접입력·대상 제외 중 하나를 선택하거나, "
                         "아래 표의 위도·경도 칸에 직접 입력하세요."
                     )
                 else:
@@ -3763,7 +3825,7 @@ with page_build:
             if n_ready < len(edited):
                 safety_warning(
                     f"좌표가 없는 {len(edited) - n_ready}건은 노선에서 제외됩니다. "
-                    "1단계의 좌표 실패건 처리에서 재검색·지도 지정·제외 중 하나를 선택하세요.",
+                    "1단계의 좌표 실패건 처리에서 재검색·좌표 직접입력·제외 중 하나를 선택하세요.",
                     title="좌표 없는 대상 안내",
                 )
 
