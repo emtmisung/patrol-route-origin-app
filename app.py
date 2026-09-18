@@ -75,6 +75,21 @@ def has_keys():
     return bool(NCP_KEY_ID) and bool(NCP_KEY)
 
 
+def is_mobile_request():
+    """현재 접속 브라우저가 휴대폰·태블릿인지 User-Agent로 구분한다."""
+    try:
+        headers = st.context.headers
+        user_agent = str(
+            headers.get("User-Agent", "") or headers.get("user-agent", "")
+        ).lower()
+    except (AttributeError, RuntimeError):
+        user_agent = ""
+    return bool(re.search(r"android|iphone|ipad|ipod|mobile|tablet", user_agent))
+
+
+IS_MOBILE_DEVICE = is_mobile_request()
+
+
 def dataframe_to_draft(df):
     """DataFrame을 브라우저 저장용 JSON 문자열로 바꾼다."""
     if df is None:
@@ -2327,12 +2342,18 @@ with page_basic:
                 unsafe_allow_html=True,
             )
         with notice_mobile:
+            transfer_notice_title = "💻 PC 이어하기" if IS_MOBILE_DEVICE else "📱 휴대폰 이어하기"
+            transfer_notice_detail = (
+                "일회용 링크 · PC 7일 보관"
+                if IS_MOBILE_DEVICE
+                else "일회용 QR · 휴대폰 7일 보관"
+            )
             st.markdown(
-                """
+                f"""
                 <div style="padding:0.38rem 0.62rem;border:1px solid #9b8bd1;border-left:4px solid #6750a4;
                             border-radius:8px;background:#f6f2ff;min-height:52px;">
-                  <div style="font-size:0.94rem;font-weight:850;color:#503a8a;">📱 휴대폰 이어하기</div>
-                  <div style="font-size:0.76rem;font-weight:650;color:#46366f;">일회용 QR · 휴대폰 7일 보관</div>
+                  <div style="font-size:0.94rem;font-weight:850;color:#503a8a;">{transfer_notice_title}</div>
+                  <div style="font-size:0.76rem;font-weight:650;color:#46366f;">{transfer_notice_detail}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2392,14 +2413,20 @@ with page_basic:
     if df is not None and len(df):
         coordinate_panel, mobile_panel = st.columns(2, gap="medium")
         with mobile_panel.container(border=True):
-            st.markdown("### 📱 휴대폰으로 이어하기")
-            st.caption(
-                "대상목록·출발지·좌표를 일회용 QR로 전달합니다."
-            )
+            if IS_MOBILE_DEVICE:
+                st.markdown("### 💻 PC로 이어하기")
+                st.caption("대상목록·출발지·좌표를 일회용 링크로 PC에 전달합니다.")
+            else:
+                st.markdown("### 📱 휴대폰으로 이어하기")
+                st.caption("대상목록·출발지·좌표를 일회용 QR로 휴대폰에 전달합니다.")
             coords_ready_for_transfer = st.session_state.get("coords_df") is not None
             st.caption("좌표 검색 완료 후 사용할 수 있습니다.")
             if st.button(
-                "📲 휴대폰으로 이어하기 QR 만들기",
+                (
+                    "💻 PC로 이어하기 링크 만들기"
+                    if IS_MOBILE_DEVICE
+                    else "📲 휴대폰으로 이어하기 QR 만들기"
+                ),
                 type="primary",
                 use_container_width=True,
                 key="create_mobile_transfer_qr",
@@ -2443,20 +2470,34 @@ with page_basic:
                     float(mobile_transfer_qr["expires_at"]) - datetime.now().timestamp()
                 )
                 if remaining_seconds > 0:
-                    st.success("QR이 준비되었습니다. 지금 휴대폰으로 촬영하세요.")
-                    st.image(
-                        mobile_transfer_qr["png"],
-                        caption="휴대폰 카메라로 QR 촬영",
-                        width=300,
-                    )
-                    st.markdown(
-                        "1. QR 촬영 · 파세루 앱 열기  \n"
-                        "2. 앱 비밀번호 입력 · 작업 자동 가져오기"
-                    )
-                    st.warning(
-                        "이 QR은 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
-                        "가져온 뒤에는 휴대폰 브라우저에 7일간 보관됩니다."
-                    )
+                    if IS_MOBILE_DEVICE:
+                        st.success("PC로 보낼 일회용 링크가 준비되었습니다.")
+                        st.caption("아래 링크 오른쪽의 복사 버튼을 누르세요.")
+                        st.code(mobile_transfer_qr["url"], language=None)
+                        st.markdown(
+                            "1. 링크 복사 · 카카오톡 ‘나와의 채팅’이나 메일로 보내기  \n"
+                            "2. PC에서 링크 열기 · 앱 비밀번호 입력  \n"
+                            "3. 현재 작업 자동 가져오기"
+                        )
+                        st.warning(
+                            "이 링크는 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
+                            "반드시 작업을 이어갈 PC에서 열어주세요."
+                        )
+                    else:
+                        st.success("QR이 준비되었습니다. 지금 휴대폰으로 촬영하세요.")
+                        st.image(
+                            mobile_transfer_qr["png"],
+                            caption="휴대폰 카메라로 QR 촬영",
+                            width=300,
+                        )
+                        st.markdown(
+                            "1. QR 촬영 · 파세루 앱 열기  \n"
+                            "2. 앱 비밀번호 입력 · 작업 자동 가져오기"
+                        )
+                        st.warning(
+                            "이 QR은 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
+                            "가져온 뒤에는 휴대폰 브라우저에 7일간 보관됩니다."
+                        )
                 else:
                     st.session_state.pop("mobile_transfer_qr", None)
                     st.warning("QR 유효시간 10분이 지났습니다. 새 QR을 만들어주세요.")
@@ -2549,7 +2590,89 @@ with page_basic:
                             st.session_state.pop("coord_future", None)
                             st.error(f"⚠️ 좌표 검색 중 오류가 발생했습니다: {type(exc).__name__}")
                     else:
-                        st.info("🔍 좌표를 검색하고 있습니다…  ◀︎ 🔎 ▶︎  아래 순찰 용도와 일정을 계속 입력하세요.")
+                        st.markdown(
+                            """
+                            <style>
+                            @keyframes paseru-search-spin {
+                                0% { transform: rotate(-18deg) scale(1); }
+                                50% { transform: rotate(22deg) scale(1.12); }
+                                100% { transform: rotate(-18deg) scale(1); }
+                            }
+                            @keyframes paseru-search-slide {
+                                0% { left: -38%; }
+                                100% { left: 100%; }
+                            }
+                            @keyframes paseru-search-pulse {
+                                0%, 100% { opacity: .45; transform: scale(.8); }
+                                50% { opacity: 1; transform: scale(1.15); }
+                            }
+                            .paseru-search-card {
+                                padding: 1.05rem 1rem .95rem;
+                                border: 2px solid #238553;
+                                border-radius: 14px;
+                                background: #ecf8f1;
+                                box-shadow: 0 4px 14px rgba(35,133,83,.16);
+                                text-align: center;
+                            }
+                            .paseru-search-icon {
+                                display: inline-block;
+                                margin-bottom: .2rem;
+                                font-size: 2.35rem;
+                                animation: paseru-search-spin 1.05s ease-in-out infinite;
+                            }
+                            .paseru-search-title {
+                                color: #126b3d;
+                                font-size: 1.22rem;
+                                font-weight: 800;
+                                line-height: 1.45;
+                            }
+                            .paseru-search-dot {
+                                display: inline-block;
+                                width: .62rem;
+                                height: .62rem;
+                                margin-right: .35rem;
+                                border-radius: 50%;
+                                background: #1aa260;
+                                animation: paseru-search-pulse 1s ease-in-out infinite;
+                            }
+                            .paseru-search-track {
+                                position: relative;
+                                height: .48rem;
+                                margin: .8rem 0 .65rem;
+                                overflow: hidden;
+                                border-radius: 99px;
+                                background: #c8e8d5;
+                            }
+                            .paseru-search-track span {
+                                position: absolute;
+                                top: 0;
+                                width: 38%;
+                                height: 100%;
+                                border-radius: 99px;
+                                background: linear-gradient(90deg, #238553, #55c78a);
+                                animation: paseru-search-slide 1.25s linear infinite;
+                            }
+                            .paseru-search-help {
+                                color: #344054;
+                                font-size: .96rem;
+                                font-weight: 600;
+                                line-height: 1.5;
+                            }
+                            </style>
+                            <div class="paseru-search-card" role="status" aria-live="polite">
+                              <div class="paseru-search-icon" aria-hidden="true">🔎</div>
+                              <div class="paseru-search-title">
+                                <span class="paseru-search-dot"></span>좌표 검색이 정상 진행 중입니다
+                              </div>
+                              <div class="paseru-search-track" aria-hidden="true"><span></span></div>
+                              <div class="paseru-search-help">
+                                완료되면 자동으로 결과가 표시됩니다.<br>
+                                기다리는 동안 아래 순찰 용도와 일정을 입력해도 됩니다.
+                              </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
                 poll_coordinate_search()
             elif coord_future is not None:
                 try:
