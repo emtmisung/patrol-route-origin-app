@@ -21,6 +21,7 @@ import qrcode
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
+from branca.element import Element
 from cryptography.fernet import Fernet, InvalidToken
 from streamlit_local_storage import LocalStorage
 from streamlit_folium import st_folium
@@ -1282,6 +1283,17 @@ def manual_map_start(coords_df, failed_address, station_lat=None, station_lng=No
         ("읍·면·동", [token for token in address_tokens if token.endswith(("읍", "면", "동", "리"))], 14),
         ("시·군·구", [token for token in address_tokens if token.endswith(("시", "군", "구"))], 12),
     ]
+    broad_search_queries = []
+    for level_name, tokens, zoom in search_levels:
+        for token in reversed(tokens):
+            token_index = normalized_address.find(token)
+            if token_index >= 0:
+                query = normalized_address[:token_index + len(token)]
+            else:
+                query = " ".join(address_tokens[: address_tokens.index(token) + 1]) if token in address_tokens else token
+            query = re.sub(r"\s+", " ", query).strip()
+            if query and all(query != existing[0] for existing in broad_search_queries):
+                broad_search_queries.append((query, token, level_name, zoom))
 
     if not valid.empty:
         valid_addresses = valid["주소"].fillna("").astype(str)
@@ -1303,9 +1315,119 @@ def manual_map_start(coords_df, failed_address, station_lat=None, station_lng=No
             "좌표 확인 대상의 전체 분포 중심",
         )
 
+    for query, token, level_name, zoom in broad_search_queries:
+        lat, lng, status = geocode_once(query)
+        if status == "ok":
+            return lat, lng, zoom, f"{token} 주변({level_name} 주소 기준)"
+
     if station_lat is not None and station_lng is not None:
         return float(station_lat), float(station_lng), 12, "출발지 주변"
     return 36.0, 128.0, 7, "대한민국 중심"
+
+
+def add_manual_location_layer_buttons(map_obj, satellite_layer, normal_layer, road_layer, label_layer):
+    """위성찾기 지도에서 현장 사용자가 보기 방식을 크게 바꿀 수 있게 한다."""
+    map_name = map_obj.get_name()
+    satellite_name = satellite_layer.get_name()
+    normal_name = normal_layer.get_name()
+    road_name = road_layer.get_name()
+    label_name = label_layer.get_name()
+    control_style = """
+    <style>
+      .manual-map-switch {
+        background: rgba(255,255,255,.96);
+        border: 1px solid #9aa7b3;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.22);
+        padding: 7px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .manual-map-switch button {
+        appearance: none;
+        border: 1px solid #6f7d8a;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #1f2d3d;
+        font-family: Arial, 'Noto Sans KR', sans-serif;
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1.2;
+        padding: 9px 10px;
+        min-width: 118px;
+        cursor: pointer;
+      }
+      .manual-map-switch button.active {
+        background: #1f6fb2;
+        border-color: #18598f;
+        color: #ffffff;
+      }
+    </style>
+    """
+    control_script = f"""
+    <script>
+      (function() {{
+        var map = {map_name};
+        var satellite = {satellite_name};
+        var normal = {normal_name};
+        var roads = {road_name};
+        var labels = {label_name};
+        var buttons = {{}};
+
+        function setActive(mode) {{
+          Object.keys(buttons).forEach(function(key) {{
+            buttons[key].classList.toggle('active', key === mode);
+          }});
+        }}
+
+        function setManualMapMode(mode) {{
+          if (map.hasLayer(normal)) map.removeLayer(normal);
+          if (map.hasLayer(satellite)) map.removeLayer(satellite);
+          if (map.hasLayer(roads)) map.removeLayer(roads);
+          if (map.hasLayer(labels)) map.removeLayer(labels);
+
+          if (mode === 'normal') {{
+            map.addLayer(normal);
+          }} else {{
+            map.addLayer(satellite);
+            if (mode === 'hybrid') {{
+              map.addLayer(roads);
+              map.addLayer(labels);
+            }}
+          }}
+          setActive(mode);
+        }}
+
+        var Control = L.Control.extend({{
+          options: {{ position: 'topright' }},
+          onAdd: function() {{
+            var box = L.DomUtil.create('div', 'manual-map-switch');
+            L.DomEvent.disableClickPropagation(box);
+            [
+              ['hybrid', '위성+도로명'],
+              ['normal', '일반지도'],
+              ['satellite', '위성만 보기']
+            ].forEach(function(item) {{
+              var button = L.DomUtil.create('button', '', box);
+              button.type = 'button';
+              button.textContent = item[1];
+              buttons[item[0]] = button;
+              L.DomEvent.on(button, 'click', function(event) {{
+                L.DomEvent.stop(event);
+                setManualMapMode(item[0]);
+              }});
+            }});
+            return box;
+          }}
+        }});
+        map.addControl(new Control());
+        setManualMapMode('hybrid');
+      }})();
+    </script>
+    """
+    map_obj.get_root().html.add_child(Element(control_style))
+    map_obj.get_root().script.add_child(Element(control_script))
 
 
 def kakao_url(name, lat, lng):
@@ -2831,15 +2953,15 @@ with page_basic:
                             "이 시작점은 위치를 찾기 위한 화면 기준이며 대상 좌표로 저장되지 않습니다."
                         )
                         st.caption(
-                            "🛰️ 위성사진이 기본으로 표시됩니다. 건물 지붕을 확인해 실제 위치를 누르세요. "
-                            "오른쪽 위 지도선택 버튼에서 일반지도로 바꿀 수 있습니다."
+                            "🛰️ 처음에는 위성+도로명 지도로 열립니다. "
+                            "도로명과 주변 건물을 함께 확인한 뒤 실제 대상 위치를 누르세요."
                         )
 
                         manual_map = folium.Map(
                             location=[center_lat, center_lng], zoom_start=start_zoom,
                             tiles=None, control_scale=True,
                         )
-                        folium.TileLayer(
+                        satellite_layer = folium.TileLayer(
                             tiles=(
                                 "https://server.arcgisonline.com/ArcGIS/rest/services/"
                                 "World_Imagery/MapServer/tile/{z}/{y}/{x}"
@@ -2848,19 +2970,46 @@ with page_basic:
                                 "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, "
                                 "and the GIS User Community"
                             ),
-                            name="🛰️ 위성사진(건물 확인)",
+                            name="🛰️ 위성만 보기",
                             overlay=False,
                             control=True,
                             show=True,
                             max_zoom=20,
                         ).add_to(manual_map)
-                        folium.TileLayer(
+                        normal_layer = folium.TileLayer(
                             tiles="OpenStreetMap",
                             name="🗺️ 일반지도(도로 확인)",
                             overlay=False,
                             control=True,
                             show=False,
                         ).add_to(manual_map)
+                        road_layer = folium.TileLayer(
+                            tiles=(
+                                "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                                "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                            ),
+                            attr="Road labels © Esri",
+                            name="도로 표시",
+                            overlay=True,
+                            control=False,
+                            show=True,
+                            max_zoom=20,
+                        ).add_to(manual_map)
+                        label_layer = folium.TileLayer(
+                            tiles=(
+                                "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                                "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                            ),
+                            attr="Place labels © Esri",
+                            name="지명 표시",
+                            overlay=True,
+                            control=False,
+                            show=True,
+                            max_zoom=20,
+                        ).add_to(manual_map)
+                        add_manual_location_layer_buttons(
+                            manual_map, satellite_layer, normal_layer, road_layer, label_layer
+                        )
                         for _, known_row in valid_coords.iterrows():
                             folium.CircleMarker(
                                 [float(known_row["위도"]), float(known_row["경도"])],
@@ -2874,7 +3023,7 @@ with page_basic:
                                 icon=folium.Icon(color="red", icon="home"),
                             ).add_to(manual_map)
                         folium.LatLngPopup().add_to(manual_map)
-                        folium.LayerControl(position="topright", collapsed=True).add_to(manual_map)
+                        folium.LayerControl(position="topleft", collapsed=True).add_to(manual_map)
                         manual_map_state = st_folium(
                             manual_map,
                             height=380,
