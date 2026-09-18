@@ -1775,11 +1775,17 @@ if not st.session_state.get("paseru_authenticated", False):
                 2. **앱 → 이 사이트를 앱으로 설치**를 선택합니다.
                 3. 이름을 `파세루 오리진`으로 확인하고 **설치**를 누르면 바탕화면과 시작 메뉴에서 실행할 수 있습니다.
 
-                **📱 안드로이드 휴대폰 — Chrome**
+                **📱 삼성 휴대폰 — Samsung Internet 권장**
 
-                1. 오른쪽 위 **⋮**를 누릅니다.
-                2. **홈 화면에 추가**를 선택합니다.
-                3. **설치** 또는 **바로가기 만들기**를 누릅니다.
+                1. 아래의 앱 주소를 복사해 **Samsung Internet(보라색 지구본 아이콘)**에서 엽니다.
+                2. 아래쪽 **☰ 메뉴**를 누릅니다.
+                3. **현재 페이지 추가(또는 페이지 추가) → 홈 화면**을 누릅니다.
+                4. 이름을 `파세루 오리진`으로 확인하고 **추가**를 누릅니다.
+
+                **Chrome 메뉴에 `홈 화면에 추가`가 없을 때**
+
+                화면처럼 **Streamlit 열기**만 보이면 그것은 파세루 바로가기를 만드는 메뉴가 아닙니다.
+                이 경우에는 위의 **Samsung Internet 방법**을 이용해 주세요.
 
                 **🍎 아이폰 — Safari**
 
@@ -1790,6 +1796,8 @@ if not st.session_state.get("paseru_authenticated", False):
                 ※ 바로가기를 만들어도 앱의 업무자료 보호를 위한 비밀번호 인증은 계속 필요합니다.
                 """
             )
+            st.caption("아래 주소 오른쪽의 복사 버튼을 누른 뒤 Samsung Internet 주소창에 붙여넣으세요.")
+            st.code(APP_PUBLIC_URL.rstrip("/") + "/", language=None)
 
         st.markdown(
             '<div style="margin-top:0.45rem;text-align:center;color:#344054;font-size:0.88rem;">'
