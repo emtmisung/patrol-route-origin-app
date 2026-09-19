@@ -1,0 +1,16 @@
+name: Keep Streamlit App Awake
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Faseru Origin
+        run: |
+          curl -L --max-time 90 --retry 2 --retry-delay 10 \
+            -A "Mozilla/5.0 GitHub-Actions-KeepAlive" \
+            "https://faseru-origin.streamlit.app/" || true
