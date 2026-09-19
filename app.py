@@ -1964,8 +1964,7 @@ if not st.session_state.get("paseru_authenticated", False):
         )
         st.markdown(
             '<div style="margin-top:0.55rem;text-align:center;color:#667085;font-size:0.9rem;'
-            'letter-spacing:-0.01em;">파세루 오리진 · 기획 및 제작 <b style="color:#17263a;">임미성</b>'
-            '<br><span style="color:#238553;font-weight:650;">현장의 경험을 더 안전한 길로 연결합니다.</span></div>',
+            'letter-spacing:-0.01em;">파세루 오리진 · 기획 및 제작 <b style="color:#17263a;">임미성</b></div>',
             unsafe_allow_html=True,
         )
 
