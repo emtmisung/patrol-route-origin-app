@@ -1023,6 +1023,18 @@ button[data-variant="pills"][aria-checked="true"] *,
 button[data-variant="pills"][aria-pressed="true"] *{ color:#ffffff !important; }
 div[data-testid="stButtonGroup"]{ gap: 8px !important; }
 
+/* 인증 카드 제목은 모바일에서도 한 줄로 유지 */
+.paseru-auth-title{
+  margin:0 0 .55rem;
+  color:var(--navy) !important;
+  font-family:'Noto Serif KR', serif !important;
+  font-size:clamp(1.16rem, 5.2vw, 1.9rem);
+  font-weight:700;
+  line-height:1.25;
+  letter-spacing:-0.12em;
+  white-space:nowrap;
+}
+
 /* ---- 버튼 ---- */
 div.stButton > button, .stDownloadButton > button, div.stFormSubmitter > button{
   background-color:var(--accent-button) !important;
@@ -1905,7 +1917,10 @@ st.markdown(
 # 공개 주소를 통한 무단 API 사용을 막기 위한 앱 입구 인증
 if not st.session_state.get("paseru_authenticated", False):
     with st.container(border=True):
-        st.markdown("### 🔐 파세루 오리진 사용자 인증")
+        st.markdown(
+            '<div class="paseru-auth-title">🔐 파세루 오리진 사용자 인증</div>',
+            unsafe_allow_html=True,
+        )
         st.caption("이 앱은 승인된 업무 담당자만 이용할 수 있습니다.")
         with st.form("paseru_login_form", clear_on_submit=False):
             entered_password = st.text_input("비밀번호", type="password", placeholder="비밀번호를 입력하세요")
