@@ -739,7 +739,7 @@ def nearest_by_straight_line(cur, candidates, k):
 def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
                  target_min_high, max_routes_cap, basis="distance", on_call=None,
                  candidate_k=5, should_stop=None, service_min_per_stop=0,
-                 strict_route_cap=False):
+                 strict_route_cap=False, route_variant=0):
     """points: list of dict(name, address, lat, lng)
     반환: routes(list of list of point dict), unassigned(장거리/미배정)
 
@@ -753,6 +753,7 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
                  중단되면 그때까지 편성된 노선만 반환한다(진행분 보존).
     strict_route_cap: 노선 수 상한에 도달했을 때 남은 대상을 마지막 노선에
                       합치지 않고 미배정으로 반환한다.
+    route_variant: 같은 조건에서 다른 후보 순서로 재탐색할 때 쓰는 번호.
     """
     remaining = points[:]
     routes = []
@@ -773,6 +774,10 @@ def build_routes(points, station, mode, max_per_route, seg_max_km, seg_max_min,
             candidates = nearest_by_straight_line(cur, remaining, candidate_k)
             legs = [(p, *real_leg(cur, p, on_call)) for p in candidates]
             legs.sort(key=(lambda t: t[2]) if basis == "time" else (lambda t: t[1]))
+            if route_variant and len(legs) > 1:
+                variant_window = min(len(legs), max(2, min(candidate_k or len(legs), 4)))
+                offset = (int(route_variant) + guard + len(route)) % variant_window
+                legs = legs[offset:variant_window] + legs[:offset] + legs[variant_window:]
             nxt, leg_km, leg_min = legs[0]
 
             # 노선의 첫 지점은 제한값을 적용하지 않는다.
@@ -3933,10 +3938,34 @@ with page_build:
                 else:
                     st.error("검사 가능한 날짜가 없습니다. 검사기간 또는 검사 가능 요일을 조정하세요.")
 
-            run = st.button("🚒 노선 생성 시작", type="primary",
-                            disabled=(not has_keys() or n_ready == 0 or
-                                      (purpose == "inspect" and inspect_capacity == 0)),
-                            use_container_width=True)
+            run_disabled = (
+                not has_keys() or n_ready == 0 or
+                (purpose == "inspect" and inspect_capacity == 0)
+            )
+            run_col1, run_col2 = st.columns(2)
+            with run_col1:
+                run = st.button(
+                    "🚒 노선 생성 시작", type="primary",
+                    disabled=run_disabled,
+                    use_container_width=True,
+                )
+            with run_col2:
+                rerun_same_condition = st.button(
+                    "🔁 같은 조건으로 노선 재탐색",
+                    type="secondary",
+                    disabled=run_disabled,
+                    help="주소·일정·팀 수는 그대로 두고 다른 후보 순서로 노선을 다시 탐색합니다.",
+                    use_container_width=True,
+                )
+            if run:
+                st.session_state["route_search_variant"] = 0
+            if rerun_same_condition:
+                st.session_state["route_search_variant"] = (
+                    int(st.session_state.get("route_search_variant", 0)) + 1
+                )
+                for stale_key in ("route_results", "far_points", "meta"):
+                    st.session_state.pop(stale_key, None)
+                run = True
         else:
             run = False
             edited = None
@@ -3947,6 +3976,7 @@ with page_build:
         st.info("먼저 1단계 기본정보에서 대상 목록을 업로드해 주세요.")
 
     if run:
+        route_variant = int(st.session_state.get("route_search_variant", 0))
         # ---- 중단 장치 ----------------------------------------------------
         # ① 수동 중단: 아래 '중단' 버튼을 누르면 Streamlit이 새로 실행되면서
         #    지금 돌고 있는 계산이 즉시 멈춘다.
@@ -4066,6 +4096,7 @@ with page_build:
                     None, basis="time", on_call=bump_build,
                     candidate_k=candidate_k, should_stop=over_limit,
                     service_min_per_stop=int(hydrant_inspection_min),
+                    route_variant=route_variant,
                 )
                 routes.extend(vehicle_routes)
                 unassigned.extend(vehicle_unassigned)
@@ -4077,6 +4108,7 @@ with page_build:
                 basis="distance", on_call=bump_build,
                 candidate_k=candidate_k, should_stop=over_limit,
                 service_min_per_stop=int(commander_stop_min),
+                route_variant=route_variant,
             )
         else:
             routes, unassigned = build_routes(
@@ -4088,6 +4120,7 @@ with page_build:
                 service_min_per_stop=(int(season_stop_min) if purpose == "season" else
                                       int(inspect_minutes) if purpose == "inspect" else 0),
                 strict_route_cap=(purpose == "inspect"),
+                route_variant=route_variant,
             )
         build_progress.empty()
 
@@ -4284,6 +4317,7 @@ with page_build:
             "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
             "target_min": target_min,
             "hydrant_distribution_basis": hydrant_distribution_basis,
+            "route_search_variant": route_variant,
             "api_calls_used": coord_api_calls + call_counter["n"] + total_calls,
             "api_call_limit": API_CALL_LIMIT,
             "validated_target_count": 217,
