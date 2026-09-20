@@ -1939,28 +1939,123 @@ try {
 
 st.markdown(
     """
-    <div style="margin:0.2rem 0 1.8rem 0;">
-      <div style="margin-bottom:0.38rem;color:#a33a3f;font-size:clamp(1.06rem,2vw,1.2rem);
-                  font-weight:650;line-height:1.5;letter-spacing:-0.015em;">
-        🚒 소방 현장 노선 편성 자동화의 시작
-      </div>
-      <div style="color:#17263a;line-height:1.2;letter-spacing:-0.035em;">
-        <span style="font-family:'Noto Serif KR',serif;font-size:clamp(2rem,5vw,3rem);
-                     font-weight:700;">FireSafe Route Origin</span>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div style="margin:-0.55rem 0 1.25rem;padding:1.05rem 1.15rem;border:1px solid #cbd3dd;
-                border-radius:12px;background:#ffffff;box-shadow:0 2px 10px rgba(23,38,58,.05);">
-      <div style="color:#17263a;font-size:clamp(1.02rem,4.05vw,1.24rem);font-weight:750;
-                  line-height:1.58;word-break:keep-all;overflow-wrap:normal;">
-        방문·점검·순찰 주소 목록을 올리면<br>
-        <span style="white-space:nowrap;">내 핸드폰 카카오맵으로 온다</span>
+    <style>
+      .paseru-login-hero {
+        margin: 0.15rem 0 1.25rem;
+        padding: 1.05rem 1.05rem 1.15rem;
+        border: 1px solid #d4dbe5;
+        border-radius: 14px;
+        background:
+          radial-gradient(circle at 88% 18%, rgba(239, 78, 78, .13), transparent 30%),
+          linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        box-shadow: 0 5px 18px rgba(23, 38, 58, .07);
+        overflow: hidden;
+      }
+      .paseru-login-kicker {
+        color: #a33a3f;
+        font-size: clamp(1.02rem, 3.8vw, 1.18rem);
+        font-weight: 750;
+        line-height: 1.45;
+        word-break: keep-all;
+      }
+      .paseru-login-title {
+        margin-top: .28rem;
+        color: #17263a;
+        font-family: 'Noto Serif KR', serif;
+        font-size: clamp(2.05rem, 9vw, 3.05rem);
+        font-weight: 750;
+        line-height: 1.05;
+        letter-spacing: -0.035em;
+      }
+      .paseru-login-body {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 160px;
+        gap: .95rem;
+        align-items: center;
+        margin-top: .95rem;
+      }
+      .paseru-login-copy {
+        color: #17263a;
+        font-size: clamp(1.04rem, 4.1vw, 1.25rem);
+        font-weight: 760;
+        line-height: 1.6;
+        word-break: keep-all;
+        overflow-wrap: normal;
+      }
+      .paseru-login-copy .nowrap { white-space: nowrap; }
+      .paseru-route-mini {
+        position: relative;
+        min-height: 126px;
+        border-radius: 13px;
+        border: 1px solid #e2e8f0;
+        background: #ffffff;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+      }
+      .paseru-route-mini::before {
+        content: "";
+        position: absolute;
+        left: 34px;
+        top: 30px;
+        width: 84px;
+        height: 58px;
+        border-top: 4px dotted #d95a5f;
+        border-right: 4px dotted #d95a5f;
+        border-radius: 0 28px 0 0;
+        opacity: .75;
+      }
+      .paseru-node {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: #fff7ed;
+        border: 2px solid #ffffff;
+        box-shadow: 0 4px 12px rgba(23,38,58,.16);
+        font-size: 1.42rem;
+      }
+      .paseru-node.fire { left: 15px; top: 16px; }
+      .paseru-node.pin { right: 16px; top: 18px; background:#eff6ff; }
+      .paseru-node.phone { right: 34px; bottom: 14px; background:#f0fdf4; }
+      .paseru-mini-label {
+        position: absolute;
+        left: 14px;
+        bottom: 15px;
+        color: #536273;
+        font-size: .78rem;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+      @media (max-width: 560px) {
+        .paseru-login-hero { padding: .95rem .95rem 1.05rem; }
+        .paseru-login-body { grid-template-columns: 1fr; gap: .75rem; }
+        .paseru-route-mini { min-height: 96px; }
+        .paseru-route-mini::before {
+          left: 43px; top: 34px; width: calc(100% - 116px); height: 0;
+          border-right: 0; border-radius: 0;
+        }
+        .paseru-node.fire { left: 16px; top: 17px; }
+        .paseru-node.pin { left: 50%; top: 17px; transform: translateX(-50%); }
+        .paseru-node.phone { right: 18px; top: 17px; bottom: auto; }
+        .paseru-mini-label { left: 16px; bottom: 12px; font-size: .76rem; }
+      }
+    </style>
+    <div class="paseru-login-hero">
+      <div class="paseru-login-kicker">🚒 소방 현장 노선 편성 자동화의 시작</div>
+      <div class="paseru-login-title">FireSafe Route Origin</div>
+      <div class="paseru-login-body">
+        <div class="paseru-login-copy">
+          방문·점검·순찰 주소 목록을 올리면<br>
+          <span class="nowrap">내 핸드폰 카카오맵으로 온다</span>
+        </div>
+        <div class="paseru-route-mini" aria-hidden="true">
+          <div class="paseru-node fire">🚒</div>
+          <div class="paseru-node pin">📍</div>
+          <div class="paseru-node phone">📱</div>
+          <div class="paseru-mini-label">주소목록 → 자동노선 → 카카오맵</div>
+        </div>
       </div>
     </div>
     """,
