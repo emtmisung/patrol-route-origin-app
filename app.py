@@ -1942,15 +1942,13 @@ st.markdown(
     <div style="margin:0.2rem 0 1.8rem 0;">
       <div style="margin-bottom:0.38rem;color:#a33a3f;font-size:clamp(1.06rem,2vw,1.2rem);
                   font-weight:650;line-height:1.5;letter-spacing:-0.015em;">
-        현장의 주소에서 시작해, 가장 효율적인 소방안전의 길을 만듭니다.
+        소방 현장 노선 편성 자동화의 시작
       </div>
       <div style="display:flex;align-items:baseline;gap:0.65rem;flex-wrap:wrap;
                   color:#17263a;line-height:1.2;letter-spacing:-0.035em;">
         <span aria-hidden="true" style="font-size:clamp(1.8rem,4vw,2.45rem);">🚒</span>
         <span style="font-family:'Noto Serif KR',serif;font-size:clamp(2rem,5vw,3rem);
-                     font-weight:700;">파세루 오리진</span>
-        <span style="color:#667085;font-family:Georgia,serif;font-size:clamp(0.95rem,2vw,1.22rem);
-                     font-weight:500;letter-spacing:-0.01em;">FireSafe Route Origin</span>
+                     font-weight:700;">FireSafe Route Origin</span>
       </div>
     </div>
     """,
@@ -1962,11 +1960,10 @@ st.markdown(
     <div style="margin:-0.55rem 0 1.25rem;padding:1.05rem 1.15rem;border:1px solid #cbd3dd;
                 border-radius:12px;background:#ffffff;box-shadow:0 2px 10px rgba(23,38,58,.05);">
       <div style="color:#17263a;font-size:1.26rem;font-weight:750;margin-bottom:0.35rem;">
-        주소 목록을 실제 도로 기준의 순찰계획으로 바꾸는 소방업무 지원 앱입니다
+        순찰·점검·방문, 주소 목록만 올리면 실제 도로 기준
       </div>
       <div style="color:#344054;font-size:1.13rem;line-height:1.65;">
-        여러 대상의 방문 순서를 일일이 지도에서 찾는 대신, 업무 목적과 순찰 조건을 반영해
-        출발지부터 복귀지까지의 노선을 자동으로 편성합니다.
+        노선을 짜서 QR로 내 폰 카카오맵에 바로 연결합니다.
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:0.55rem;
                   margin-top:0.8rem;color:#263442;font-size:1.06rem;font-weight:600;">
