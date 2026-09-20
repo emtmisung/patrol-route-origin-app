@@ -52,7 +52,7 @@ APP_PUBLIC_URL = str(
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
-API_CALL_LIMIT = 3000     # 좌표검색과 노선계산을 합친 작업당 NCP 호출 상한
+API_CALL_LIMIT = 3000     # NCP 일일 조회 기준 참고 한도(과도한 연속 호출 방지용)
 
 SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
 
@@ -4368,10 +4368,10 @@ with page_build:
                   </div>
                   <div style="font-size:1.12rem;font-weight:800;color:#17375f;">
                     이번 작업 사용 API 호출 <span style="color:#126f4b;">{api_calls_used:,}건</span>
-                    <span style="color:#68788d;font-weight:650;"> / 작업당 한도 {api_call_limit:,}건</span>
+                    <span style="color:#68788d;font-weight:650;"> / 일일 기준 참고 한도 {api_call_limit:,}건</span>
                   </div>
                   <div style="margin-top:.3rem;font-size:.88rem;color:#53657b;">
-                    {validated_target_count}개소급 대규모 실증 결과를 반영해 기존 500건에서 상향했습니다.
+                    조회 대상이 많으면 한 작업에서도 수백~천 건 이상 사용할 수 있어, 하루 사용량 기준으로 표시합니다.
                   </div>
                 </div>
                 """,
