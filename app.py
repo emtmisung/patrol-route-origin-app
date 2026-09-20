@@ -4669,8 +4669,8 @@ with page_build:
 
             for row_cells in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=last_col):
                 for cell in row_cells:
-                    if cell.row not in (1,):
-                        cell.border = border if cell.value is not None else cell.border
+                    if cell.row not in (1,) and cell.value is not None:
+                        cell.border = border
                     if cell.column in (7, 8, 9, 10):
                         cell.alignment = right
             ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
