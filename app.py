@@ -1942,11 +1942,9 @@ st.markdown(
     <div style="margin:0.2rem 0 1.8rem 0;">
       <div style="margin-bottom:0.38rem;color:#a33a3f;font-size:clamp(1.06rem,2vw,1.2rem);
                   font-weight:650;line-height:1.5;letter-spacing:-0.015em;">
-        소방 현장 노선 편성 자동화의 시작
+        🚒 소방 현장 노선 편성 자동화의 시작
       </div>
-      <div style="display:flex;align-items:baseline;gap:0.65rem;flex-wrap:wrap;
-                  color:#17263a;line-height:1.2;letter-spacing:-0.035em;">
-        <span aria-hidden="true" style="font-size:clamp(1.8rem,4vw,2.45rem);">🚒</span>
+      <div style="color:#17263a;line-height:1.2;letter-spacing:-0.035em;">
         <span style="font-family:'Noto Serif KR',serif;font-size:clamp(2rem,5vw,3rem);
                      font-weight:700;">FireSafe Route Origin</span>
       </div>
@@ -1963,13 +1961,7 @@ st.markdown(
         순찰·점검·방문, 주소 목록만 올리면 실제 도로 기준
       </div>
       <div style="color:#344054;font-size:1.13rem;line-height:1.65;">
-        노선을 짜서 QR로 내 폰 카카오맵에 바로 연결합니다.
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:0.55rem;
-                  margin-top:0.8rem;color:#263442;font-size:1.06rem;font-weight:600;">
-        <div>🛣️ 실제 도로거리·시간 계산</div>
-        <div>📍 업무별 방문 순서 편성</div>
-        <div>📱 지도·카카오맵·QR 전달</div>
+        노선을 짜서 QR로 내 폰 카카오맵에 바로 연결
       </div>
     </div>
     """,
