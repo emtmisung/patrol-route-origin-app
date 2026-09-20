@@ -1967,14 +1967,8 @@ st.markdown(
         line-height: 1.05;
         letter-spacing: -0.035em;
       }
-      .paseru-login-body {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 160px;
-        gap: .95rem;
-        align-items: center;
-        margin-top: .95rem;
-      }
       .paseru-login-copy {
+        margin-top: .95rem;
         color: #17263a;
         font-size: clamp(1.04rem, 4.1vw, 1.25rem);
         font-weight: 760;
@@ -1983,78 +1977,105 @@ st.markdown(
         overflow-wrap: normal;
       }
       .paseru-login-copy .nowrap { white-space: nowrap; }
-      .paseru-route-mini {
-        position: relative;
-        min-height: 126px;
+      .paseru-flow-card {
+        margin-top: 1.05rem;
+        padding: .95rem .75rem .85rem;
         border-radius: 13px;
         border: 1px solid #e2e8f0;
-        background: #ffffff;
+        background: rgba(255,255,255,.86);
         box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
       }
-      .paseru-route-mini::before {
+      .paseru-flow-steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        align-items: start;
+        gap: .35rem;
+        position: relative;
+      }
+      .paseru-flow-step {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        justify-items: center;
+        gap: .42rem;
+        min-width: 0;
+      }
+      .paseru-flow-step:not(:last-child)::after {
         content: "";
         position: absolute;
-        left: 34px;
-        top: 30px;
-        width: 84px;
-        height: 58px;
-        border-top: 4px dotted #d95a5f;
-        border-right: 4px dotted #d95a5f;
-        border-radius: 0 28px 0 0;
-        opacity: .75;
+        top: 28px;
+        left: calc(50% + 32px);
+        width: calc(100% - 28px);
+        border-top: 5px dotted #df6c70;
+        opacity: .72;
       }
-      .paseru-node {
-        position: absolute;
+      .paseru-flow-icon {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 42px;
-        height: 42px;
+        width: 58px;
+        height: 58px;
         border-radius: 50%;
-        background: #fff7ed;
-        border: 2px solid #ffffff;
-        box-shadow: 0 4px 12px rgba(23,38,58,.16);
-        font-size: 1.42rem;
+        background: #ffffff;
+        border: 3px solid #ffffff;
+        box-shadow: 0 6px 16px rgba(23,38,58,.15);
+        font-size: 1.85rem;
       }
-      .paseru-node.fire { left: 15px; top: 16px; }
-      .paseru-node.pin { right: 16px; top: 18px; background:#eff6ff; }
-      .paseru-node.phone { right: 34px; bottom: 14px; background:#f0fdf4; }
-      .paseru-mini-label {
-        position: absolute;
-        left: 14px;
-        bottom: 15px;
-        color: #536273;
-        font-size: .78rem;
-        font-weight: 700;
-        line-height: 1.35;
+      .paseru-flow-step.file .paseru-flow-icon { background: #fff7ed; }
+      .paseru-flow-step.route .paseru-flow-icon { background: #eff6ff; }
+      .paseru-flow-step.phone .paseru-flow-icon { background: #f0fdf4; }
+      .paseru-flow-step.go .paseru-flow-icon { background: #fff1f2; }
+      .paseru-flow-label {
+        color: #17263a;
+        font-size: .88rem;
+        font-weight: 800;
+        line-height: 1.25;
+        text-align: center;
+        word-break: keep-all;
       }
       @media (max-width: 560px) {
         .paseru-login-hero { padding: .95rem .95rem 1.05rem; }
-        .paseru-login-body { grid-template-columns: 1fr; gap: .75rem; }
-        .paseru-route-mini { min-height: 96px; }
-        .paseru-route-mini::before {
-          left: 43px; top: 34px; width: calc(100% - 116px); height: 0;
-          border-right: 0; border-radius: 0;
+        .paseru-flow-card { padding: .78rem .45rem .72rem; }
+        .paseru-flow-steps { gap: .15rem; }
+        .paseru-flow-step:not(:last-child)::after {
+          top: 24px;
+          left: calc(50% + 25px);
+          width: calc(100% - 18px);
+          border-top-width: 4px;
         }
-        .paseru-node.fire { left: 16px; top: 17px; }
-        .paseru-node.pin { left: 50%; top: 17px; transform: translateX(-50%); }
-        .paseru-node.phone { right: 18px; top: 17px; bottom: auto; }
-        .paseru-mini-label { left: 16px; bottom: 12px; font-size: .76rem; }
+        .paseru-flow-icon {
+          width: 48px;
+          height: 48px;
+          font-size: 1.52rem;
+        }
+        .paseru-flow-label { font-size: .75rem; }
       }
     </style>
     <div class="paseru-login-hero">
       <div class="paseru-login-kicker">🚒 소방 현장 노선 편성 자동화의 시작</div>
       <div class="paseru-login-title">FireSafe Route Origin</div>
-      <div class="paseru-login-body">
-        <div class="paseru-login-copy">
-          방문·점검·순찰 주소 목록을 올리면<br>
-          <span class="nowrap">내 핸드폰 카카오맵으로 온다</span>
-        </div>
-        <div class="paseru-route-mini" aria-hidden="true">
-          <div class="paseru-node fire">🚒</div>
-          <div class="paseru-node pin">📍</div>
-          <div class="paseru-node phone">📱</div>
-          <div class="paseru-mini-label">주소목록 → 자동노선 → 카카오맵</div>
+      <div class="paseru-login-copy">
+        방문·점검·순찰 주소 목록을 올리면<br>
+        <span class="nowrap">내 핸드폰 카카오맵으로 온다</span>
+      </div>
+      <div class="paseru-flow-card" aria-label="파세루 이용 흐름">
+        <div class="paseru-flow-steps">
+          <div class="paseru-flow-step file">
+            <div class="paseru-flow-icon">📄</div>
+            <div class="paseru-flow-label">주소목록<br>파일</div>
+          </div>
+          <div class="paseru-flow-step route">
+            <div class="paseru-flow-icon">📍</div>
+            <div class="paseru-flow-label">자동<br>노선</div>
+          </div>
+          <div class="paseru-flow-step phone">
+            <div class="paseru-flow-icon">📱</div>
+            <div class="paseru-flow-label">핸드폰<br>전송</div>
+          </div>
+          <div class="paseru-flow-step go">
+            <div class="paseru-flow-icon">🚒</div>
+            <div class="paseru-flow-label">카카오맵<br>출발</div>
+          </div>
         </div>
       </div>
     </div>
