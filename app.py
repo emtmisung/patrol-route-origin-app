@@ -1959,8 +1959,8 @@ st.markdown(
                 border-radius:12px;background:#ffffff;box-shadow:0 2px 10px rgba(23,38,58,.05);">
       <div style="color:#17263a;font-size:clamp(1.02rem,4.05vw,1.24rem);font-weight:750;
                   line-height:1.58;word-break:keep-all;overflow-wrap:normal;">
-        순찰·점검·방문 주소 목록을 올리면<br>
-        실제 도로 기준의 노선이 <span style="white-space:nowrap;">내 핸드폰으로 온다</span>
+        방문·점검·순찰 주소 목록을 올리면<br>
+        <span style="white-space:nowrap;">내 핸드폰 카카오맵으로 온다</span>
       </div>
     </div>
     """,
