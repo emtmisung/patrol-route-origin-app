@@ -849,6 +849,66 @@ def allocate_hydrants_to_members(points, station, members):
     return assigned
 
 
+def allocate_hydrants_by_distribution(points, station, vehicle_count, mode):
+    """지리조사 대상을 사용자가 고른 기준으로 차량/팀에 먼저 배정한다."""
+    vehicle_count = max(int(vehicle_count or 1), 1)
+    if not points:
+        return []
+    if vehicle_count == 1:
+        return [{**p, "vehicle_no": 1, "assigned_to": "1팀"} for p in points]
+
+    enriched = []
+    for point in points:
+        straight_km = haversine_km((station["lat"], station["lng"]), (point["lat"], point["lng"]))
+        est_km = straight_km * ROAD_FACTOR
+        est_min = est_km / AVG_SPEED_KMH * 60
+        angle = math.atan2(point["lat"] - station["lat"], point["lng"] - station["lng"])
+        enriched.append({
+            **point,
+            "_straight_km": straight_km,
+            "_est_km": est_km,
+            "_est_min": est_min,
+            "_angle": angle,
+        })
+
+    assigned = []
+    if mode == "전체 개수 균등":
+        ordered = sorted(enriched, key=lambda p: (p["_angle"], p["_straight_km"]))
+        base, extra = divmod(len(ordered), vehicle_count)
+        cursor = 0
+        for vehicle_no in range(1, vehicle_count + 1):
+            count = base + (1 if vehicle_no <= extra else 0)
+            for point in ordered[cursor:cursor + count]:
+                assigned.append({**point, "vehicle_no": vehicle_no, "assigned_to": f"{vehicle_no}팀"})
+            cursor += count
+    else:
+        if mode == "거리 km 균등":
+            weight_key = "_est_km"
+        elif mode == "센터 가까운 곳 많이, 먼 곳 적게":
+            weight_key = "_est_km"
+        else:
+            weight_key = "_est_min"
+
+        buckets = [{"load": 0.0, "count": 0, "points": []} for _ in range(vehicle_count)]
+        for point in sorted(enriched, key=lambda p: p[weight_key], reverse=True):
+            bucket_index = min(
+                range(vehicle_count),
+                key=lambda idx: (buckets[idx]["load"], buckets[idx]["count"], idx),
+            )
+            buckets[bucket_index]["points"].append(point)
+            buckets[bucket_index]["load"] += max(point[weight_key], 0.1)
+            buckets[bucket_index]["count"] += 1
+
+        for bucket_index, bucket in enumerate(buckets, start=1):
+            for point in sorted(bucket["points"], key=lambda p: (p["_angle"], p["_straight_km"])):
+                assigned.append({**point, "vehicle_no": bucket_index, "assigned_to": f"{bucket_index}팀"})
+
+    for point in assigned:
+        for private_key in ("_straight_km", "_est_km", "_est_min", "_angle"):
+            point.pop(private_key, None)
+    return assigned
+
+
 def separate_long_distance(points, station, threshold_km, on_call=None, save_calls=True,
                            should_stop=None):
     """소방서에서 실도로거리가 기준을 넘는 대상을 분리한다.
@@ -3343,6 +3403,7 @@ with page_details:
         hydrant_target_min = 90
         hydrant_max_min = 120
         hydrant_inspection_min = 5
+        hydrant_distribution_basis = "소요시간 균등"
         season_scope = "관할 전체 대상 균등 순환"
         season_actor = "소방공무원"
         season_vehicle = "소방차"
@@ -3399,7 +3460,16 @@ with page_details:
                 hydrant_member_count = st.number_input("지리조사 인원 수", min_value=1, max_value=30, value=2)
             with hc2:
                 hydrant_vehicle_count = st.number_input("운행 차량 수", min_value=1, max_value=15, value=1)
-            st.caption("전체 소화전을 인원수로 균등 배정하고, 같은 차량의 담당 구역은 서로 가깝게 묶습니다.")
+            hydrant_distribution_basis = st.radio(
+                "팀별 노선 분배 기준",
+                ["소요시간 균등", "전체 개수 균등", "거리 km 균등", "센터 가까운 곳 많이, 먼 곳 적게"],
+                horizontal=True,
+                help=(
+                    "지수리처럼 팀별 업무량을 맞출 때 사용할 기준입니다. "
+                    "가까운 곳 많이/먼 곳 적게는 센터에서 먼 대상을 적게 배정하는 방식입니다."
+                ),
+            )
+            st.caption("선택한 분배 기준으로 팀별 담당구역을 먼저 나눈 뒤, 각 팀 안에서 가까운 순서로 노선을 만듭니다.")
             # 개인정보 보호를 위해 화면에서는 실명과 차량별 팀원 편성을 입력받지 않는다.
             # 계산에는 익명 순번만 사용하고, 담당 조·조원은 내려받은 엑셀에서 작성한다.
             for member_index in range(int(hydrant_member_count)):
@@ -3920,7 +3990,9 @@ with page_build:
 
         # 3) 용도별 원거리 판정
         if purpose == "hydrant":
-            normal_points = allocate_hydrants_to_members(points, station, hydrant_members)
+            normal_points = allocate_hydrants_by_distribution(
+                points, station, int(hydrant_vehicle_count), hydrant_distribution_basis
+            )
             far_points = []
         elif purpose == "inspect":
             # 예방검사는 거리에 관계없이 업로드한 모든 대상을 반드시 포함한다.
@@ -4049,7 +4121,8 @@ with page_build:
             base_count, extra_count = divmod(len(points), max(int(hydrant_member_count), 1))
             count_text = (f"{base_count}~{base_count + 1}개" if extra_count else f"{base_count}개")
             team_info = (f" · {hydrant_member_count}명 개인별 {count_text}"
-                         f" · 차량 {hydrant_vehicle_count}대 · 월 {hydrant_workdays}근무일")
+                         f" · 차량 {hydrant_vehicle_count}대 · 월 {hydrant_workdays}근무일"
+                         f" · {hydrant_distribution_basis}")
         elif purpose == "season":
             limit_unit = "분" if season_limit_basis == "편도시간(분)" else "km"
             team_info = (f" · 관할 전체 대상 균등 순환 · {season_actor}/{season_vehicle}"
@@ -4210,6 +4283,7 @@ with page_build:
                              "방문일" if purpose == "other" else "순찰기간"),
             "basis": basis_label, "route_prefix": route_prefix, "team_info": team_info.strip(" ·"),
             "target_min": target_min,
+            "hydrant_distribution_basis": hydrant_distribution_basis,
             "api_calls_used": coord_api_calls + call_counter["n"] + total_calls,
             "api_call_limit": API_CALL_LIMIT,
             "validated_target_count": 217,
@@ -4442,15 +4516,187 @@ with page_build:
             wb.save(buf)
             return buf.getvalue()
 
+        def build_center_integrated_excel(station, route_results, meta):
+            from openpyxl import Workbook
+            from openpyxl.drawing.image import Image as XLImage
+            from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+            from openpyxl.utils import get_column_letter
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "지리조사 통합표"
+            ws.sheet_view.showGridLines = False
+
+            thin = Side(style="thin", color="D9D9D9")
+            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            title_fill = PatternFill("solid", fgColor="17375F")
+            header_fill = PatternFill("solid", fgColor="D9EAF7")
+            summary_fill = PatternFill("solid", fgColor="F7E9EA")
+            center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            right = Alignment(horizontal="right", vertical="center", wrap_text=True)
+
+            columns = [
+                "팀", "조", "노선", "순번", "대상명", "주소",
+                "구간거리(km)", "누적거리(km)", "노선거리(km)", "총소요시간(분)",
+                "카카오맵", "QR",
+            ]
+            last_col = len(columns)
+
+            title = meta.get("title", "센터 지리조사 노선 결과")
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+            title_cell = ws.cell(row=1, column=1, value=f"{title} - 지도·팀별목록 통합 엑셀")
+            title_cell.fill = title_fill
+            title_cell.font = Font(color="FFFFFF", bold=True, size=14)
+            title_cell.alignment = center
+
+            basis = meta.get("hydrant_distribution_basis") or meta.get("basis") or ""
+            ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+            ws.cell(
+                row=2, column=1,
+                value=(
+                    f"출발·복귀: {station['name']} / 분배기준: {basis} / "
+                    f"{meta.get('team_info', '')}"
+                ),
+            ).alignment = left
+
+            summary_start = 4
+            ws.cell(row=summary_start, column=1, value="팀별 요약표")
+            ws.merge_cells(start_row=summary_start, start_column=1, end_row=summary_start, end_column=last_col)
+            ws.cell(row=summary_start, column=1).fill = summary_fill
+            ws.cell(row=summary_start, column=1).font = Font(bold=True, size=12)
+            ws.cell(row=summary_start, column=1).alignment = center
+
+            summary_headers = ["팀", "조/노선 수", "대상 수", "총 거리(km)", "총 소요시간(분)", "비고"]
+            for col_no, header in enumerate(summary_headers, start=1):
+                cell = ws.cell(row=summary_start + 1, column=col_no, value=header)
+                cell.fill = header_fill
+                cell.font = Font(bold=True)
+                cell.border = border
+                cell.alignment = center
+
+            team_summary = {}
+            team_route_order = {}
+            for rr in route_results:
+                team_no = rr.get("vehicle_no") or rr["route_no"]
+                team_summary.setdefault(team_no, {"routes": 0, "stops": 0, "km": 0.0, "min": 0.0})
+                team_summary[team_no]["routes"] += 1
+                team_summary[team_no]["stops"] += len(rr["stops"])
+                team_summary[team_no]["km"] += rr["total_km"]
+                team_summary[team_no]["min"] += rr["total_min"]
+                team_route_order[rr["route_no"]] = team_summary[team_no]["routes"]
+
+            row = summary_start + 2
+            for team_no in sorted(team_summary):
+                info = team_summary[team_no]
+                values = [
+                    f"{team_no}팀",
+                    info["routes"],
+                    info["stops"],
+                    round(info["km"], 1),
+                    round(info["min"]),
+                    "",
+                ]
+                for col_no, value in enumerate(values, start=1):
+                    cell = ws.cell(row=row, column=col_no, value=value)
+                    cell.border = border
+                    cell.alignment = center if col_no != 6 else left
+                row += 1
+
+            list_start = row + 2
+            ws.cell(row=list_start, column=1, value="팀별·조별 배정 목록")
+            ws.merge_cells(start_row=list_start, start_column=1, end_row=list_start, end_column=last_col)
+            ws.cell(row=list_start, column=1).fill = summary_fill
+            ws.cell(row=list_start, column=1).font = Font(bold=True, size=12)
+            ws.cell(row=list_start, column=1).alignment = center
+
+            header_row = list_start + 1
+            for col_no, header in enumerate(columns, start=1):
+                cell = ws.cell(row=header_row, column=col_no, value=header)
+                cell.fill = header_fill
+                cell.font = Font(bold=True)
+                cell.border = border
+                cell.alignment = center
+
+            row = header_row + 1
+            for rr in route_results:
+                team_no = rr.get("vehicle_no") or rr["route_no"]
+                group_no = team_route_order.get(rr["route_no"], 1)
+                route_links = kakao_route_links(station, rr["legs"])
+                first_url = route_links[0][0] if route_links else ""
+                acc_km = 0.0
+                route_start_row = row
+
+                for stop_no, leg in enumerate(rr["legs"], start=1):
+                    acc_km += leg["km"]
+                    values = [
+                        f"{team_no}팀",
+                        f"{group_no}조",
+                        f"노선 {rr['route_no']}",
+                        stop_no,
+                        leg["to"],
+                        leg.get("to_address", ""),
+                        round(leg["km"], 1),
+                        round(acc_km, 1),
+                        round(rr["total_km"], 1) if stop_no == 1 else "",
+                        round(rr["total_min"]) if stop_no == 1 else "",
+                        "카카오맵 열기" if stop_no == 1 and first_url else "",
+                        "",
+                    ]
+                    for col_no, value in enumerate(values, start=1):
+                        cell = ws.cell(row=row, column=col_no, value=value)
+                        cell.border = border
+                        cell.alignment = left if col_no in (5, 6) else center
+                    if stop_no == 1 and first_url:
+                        link_cell = ws.cell(row=row, column=11)
+                        link_cell.hyperlink = first_url
+                        link_cell.style = "Hyperlink"
+                    row += 1
+
+                if first_url:
+                    qr_img = XLImage(io.BytesIO(make_qr_png(first_url)))
+                    qr_img.width = 92
+                    qr_img.height = 92
+                    ws.add_image(qr_img, f"L{route_start_row}")
+                    ws.row_dimensions[route_start_row].height = 74
+
+            widths = {
+                "A": 10, "B": 8, "C": 11, "D": 8, "E": 28, "F": 48,
+                "G": 13, "H": 13, "I": 13, "J": 15, "K": 18, "L": 15,
+            }
+            for column, width in widths.items():
+                ws.column_dimensions[column].width = width
+
+            for row_cells in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=last_col):
+                for cell in row_cells:
+                    if cell.row not in (1,):
+                        cell.border = border if cell.value is not None else cell.border
+                    if cell.column in (7, 8, 9, 10):
+                        cell.alignment = right
+            ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+
+            buf = io.BytesIO()
+            wb.save(buf)
+            return buf.getvalue()
+
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", meta.get("title", "순찰노선")) or "순찰노선"
 
         center_print_bytes = build_center_route_print_html(station, route_results, meta)
 
         # 공문서 작업과 현장 전달에 필요한 4개 자료를 하나의 ZIP으로 묶는다.
         wide_excel_bytes = build_wide_excel(station, route_results, far_points, meta)
+        center_integrated_excel_bytes = (
+            build_center_integrated_excel(station, route_results, meta) if is_center_route else None
+        )
         route_links_excel_bytes = build_route_links_excel(station, route_results)
         qr_zip_bytes = build_qr_zip(station, route_results)
         printable_qr_html_bytes = build_printable_qr_html(station, route_results, meta)
+
+        center_materials = io.BytesIO()
+        if is_center_route:
+            with zipfile.ZipFile(center_materials, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(f"1_{safe_title}_노선지도.html", center_print_bytes)
+                zf.writestr(f"2_{safe_title}_팀별조별_통합표_QR포함.xlsx", center_integrated_excel_bytes)
 
         all_materials = io.BytesIO()
         with zipfile.ZipFile(all_materials, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -4466,8 +4712,8 @@ with page_build:
 
                 if is_center_route:
                     st.download_button(
-                        "🖨 센터용 노선결과 내려받기", data=center_print_bytes,
-                        file_name=f"{safe_title}_센터용_노선결과.html", mime="text/html",
+                        "지도·팀별목록 한꺼번에 다운로드", data=center_materials.getvalue(),
+                        file_name=f"{safe_title}_지도_팀별목록.zip", mime="application/zip",
                         use_container_width=True,
                     )
                 else:
