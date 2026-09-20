@@ -1957,11 +1957,14 @@ st.markdown(
     """
     <div style="margin:-0.55rem 0 1.25rem;padding:1.05rem 1.15rem;border:1px solid #cbd3dd;
                 border-radius:12px;background:#ffffff;box-shadow:0 2px 10px rgba(23,38,58,.05);">
-      <div style="color:#17263a;font-size:1.26rem;font-weight:750;margin-bottom:0.35rem;">
-        순찰·점검·방문, 주소 목록만 올리면 실제 도로 기준
+      <div style="color:#17263a;font-size:clamp(1.02rem,4.1vw,1.26rem);font-weight:750;
+                  margin-bottom:0.35rem;line-height:1.55;word-break:keep-all;overflow-wrap:normal;">
+        <span style="white-space:nowrap;">순찰·점검·방문, 주소 목록만 올리면</span><br>
+        실제 도로 기준
       </div>
-      <div style="color:#344054;font-size:1.13rem;line-height:1.65;">
-        노선을 짜서 QR로 내 폰 카카오맵에 바로 연결
+      <div style="color:#344054;font-size:clamp(0.98rem,3.75vw,1.13rem);line-height:1.6;
+                  word-break:keep-all;overflow-wrap:normal;">
+        노선을 짜서 QR로 내 폰 카카오맵에 <span style="white-space:nowrap;">바로 연결</span>
       </div>
     </div>
     """,
