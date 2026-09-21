@@ -2040,6 +2040,7 @@ st.markdown(
         flex: 0 0 auto;
         width: clamp(92px, 22vw, 124px);
         aspect-ratio: 1 / 1;
+        margin-top: clamp(2.05rem, 8.7vw, 3.05rem);
         border-radius: 20px;
         object-fit: cover;
         box-shadow: 0 8px 22px rgba(11, 47, 95, .17);
@@ -2135,6 +2136,7 @@ st.markdown(
         }
         .paseru-mascot-icon {
           width: 76px;
+          margin-top: 2.05rem;
           border-radius: 16px;
         }
         .paseru-login-kicker {
