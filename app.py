@@ -2040,7 +2040,7 @@ st.markdown(
         flex: 0 0 auto;
         width: clamp(104px, 23vw, 132px);
         aspect-ratio: 1 / 1;
-        margin-top: .34rem;
+        margin-top: 0;
         border-radius: 20px;
         object-fit: cover;
         box-shadow: 0 8px 22px rgba(11, 47, 95, .17);
@@ -2064,7 +2064,7 @@ st.markdown(
       .paseru-login-copy {
         margin-top: .95rem;
         color: #17263a;
-        font-size: clamp(1.04rem, 4.1vw, 1.25rem);
+        font-size: clamp(.98rem, 3.6vw, 1.18rem);
         font-weight: 760;
         line-height: 1.6;
         word-break: keep-all;
@@ -2072,6 +2072,7 @@ st.markdown(
         text-align: center;
         max-width: 100%;
       }
+      .paseru-login-copy > div { white-space: nowrap; }
       .paseru-login-copy .nowrap { white-space: nowrap; }
       .paseru-flow-card {
         margin-top: 1.05rem;
@@ -2138,7 +2139,7 @@ st.markdown(
         }
         .paseru-mascot-icon {
           width: 88px;
-          margin-top: .26rem;
+          margin-top: 0;
           border-radius: 17px;
         }
         .paseru-login-kicker {
