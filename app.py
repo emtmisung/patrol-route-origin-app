@@ -2025,6 +2025,24 @@ st.markdown(
         box-shadow: 0 5px 18px rgba(23, 38, 58, .07);
         overflow: hidden;
       }
+      .paseru-hero-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: .85rem;
+      }
+      .paseru-hero-text {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .paseru-mascot-icon {
+        flex: 0 0 auto;
+        width: clamp(76px, 21vw, 112px);
+        aspect-ratio: 1 / 1;
+        border-radius: 22px;
+        object-fit: cover;
+        box-shadow: 0 8px 22px rgba(11, 47, 95, .17);
+      }
       .paseru-login-kicker {
         color: #a33a3f;
         font-size: clamp(1.02rem, 3.8vw, 1.18rem);
@@ -2109,6 +2127,11 @@ st.markdown(
       }
       @media (max-width: 560px) {
         .paseru-login-hero { padding: .95rem .95rem 1.05rem; }
+        .paseru-hero-top { gap: .55rem; }
+        .paseru-mascot-icon {
+          width: 72px;
+          border-radius: 18px;
+        }
         .paseru-flow-card { padding: .78rem .45rem .72rem; }
         .paseru-flow-steps { gap: .15rem; }
         .paseru-flow-step:not(:last-child)::after {
@@ -2126,11 +2149,16 @@ st.markdown(
       }
     </style>
     <div class="paseru-login-hero">
-      <div class="paseru-login-kicker">🚒 소방 현장 노선 편성 자동화의 시작</div>
-      <div class="paseru-login-title">FireSafe Route Origin</div>
-      <div class="paseru-login-copy">
-        방문·점검·순찰 주소 목록을 올리면<br>
-        <span class="nowrap">내 핸드폰 카카오맵으로 온다</span>
+      <div class="paseru-hero-top">
+        <div class="paseru-hero-text">
+          <div class="paseru-login-kicker">🚒 소방 현장 노선 편성 자동화의 시작</div>
+          <div class="paseru-login-title">FireSafe Route Origin</div>
+          <div class="paseru-login-copy">
+            방문·점검·순찰 주소 목록을 올리면<br>
+            <span class="nowrap">내 핸드폰 카카오맵으로 온다</span>
+          </div>
+        </div>
+        <img class="paseru-mascot-icon" src="__PASERU_ICON_URL__" alt="파세루 캐릭터">
       </div>
       <div class="paseru-flow-card" aria-label="파세루 이용 흐름">
         <div class="paseru-flow-steps">
@@ -2153,7 +2181,7 @@ st.markdown(
         </div>
       </div>
     </div>
-    """,
+    """.replace("__PASERU_ICON_URL__", PWA_ICON_URL),
     unsafe_allow_html=True,
 )
 
