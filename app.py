@@ -534,10 +534,13 @@ def haversine_km(a, b):
 # ----------------------------------------------------------------------------
 # 한글(hwpx) 표 파싱 — 데모(웹 프로토타입)와 동일한 방식
 # ----------------------------------------------------------------------------
-HEADER_WORDS = re.compile(r"^(연번|no\.?|번호|구분|이름|명칭|대상명|대상명주소|주소|정제_주소|비고)$", re.I)
+HEADER_WORDS = re.compile(r"^(연번|no\\.?|번호|구분|이름|명칭|대상|대상명|대상물명|시설명|소화전명|소화전번호|관리번호|대상명주소|주소|주소지|소재지|정제_주소|비고)$", re.I)
 
-NAME_HEADER_WORDS = ("대상물명", "대상명", "시설명", "명칭", "이름")
-ADDRESS_HEADER_WORDS = ("주소", "주소지", "소재지")
+NAME_HEADER_WORDS = (
+    "대상물명", "대상명", "시설명", "소화전명", "소화전번호", "관리번호",
+    "시설물명", "장소명", "명칭", "이름", "대상",
+)
+ADDRESS_HEADER_WORDS = ("주소", "주소지", "소재지", "위치", "설치위치")
 SERIAL_HEADER_WORDS = ("연번", "순번", "번호", "no")
 
 
@@ -548,7 +551,7 @@ def _header_text(value):
     return re.sub(r"[\s_]", "", str(value)).lower()
 
 
-def _find_header_row(raw_df, scan_rows=20):
+def _find_header_row(raw_df, scan_rows=80):
     """제목행이 위에 있어도 대상명·주소가 있는 실제 헤더행을 찾는다."""
     for row_idx in range(min(scan_rows, len(raw_df))):
         tokens = [_header_text(v) for v in raw_df.iloc[row_idx].tolist()]
