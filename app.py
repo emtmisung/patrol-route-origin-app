@@ -192,7 +192,7 @@ def minimum_transfer_targets(targets_df):
     """휴대폰 전달에는 대상명과 주소 열만 포함해 불필요한 원본 열을 제외한다."""
     columns = list(targets_df.columns)
     name_index = find_name_column_index(columns)
-    address_index = find_address_column_index(columns, name_index)
+    address_index = find_address_column_index(columns, name_index, targets_df)
     return pd.DataFrame({
         "대상명": targets_df.iloc[:, name_index].copy(),
         "주소": targets_df.iloc[:, address_index].copy(),
@@ -551,6 +551,34 @@ def _header_text(value):
     return re.sub(r"[\s_]", "", str(value)).lower()
 
 
+def _cell_text(value):
+    """엑셀 빈칸/nan 값을 화면과 검색에서 실제 값처럼 쓰지 않도록 정리한다."""
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in ("nan", "none", "nat") else text
+
+
+def _looks_like_address_text(value):
+    text = _cell_text(value)
+    if not text:
+        return False
+    lowered = text.lower()
+    if any(word in lowered for word in ("조회일시", "검색일시", "시도내역", "실패사유", "비고")):
+        return False
+    has_place_word = bool(re.search(r"(시|군|구|읍|면|동|리|로|길|번지|산\s*\d|경상|전라|충청|강원|경기|서울|부산|대구|인천|광주|대전|울산|세종|제주)", text))
+    has_number = bool(re.search(r"\d", text))
+    return has_place_word and has_number
+
+
+def _address_column_score(series):
+    values = list(series.dropna()) if series is not None else []
+    nonempty = [_cell_text(v) for v in values if _cell_text(v)]
+    if not nonempty:
+        return 0
+    return sum(1 for value in nonempty if _looks_like_address_text(value))
+
+
 def _find_header_row(raw_df, scan_rows=80):
     """제목행이 위에 있어도 대상명·주소가 있는 실제 헤더행을 찾는다."""
     for row_idx in range(min(scan_rows, len(raw_df))):
@@ -616,7 +644,16 @@ def normalize_uploaded_table(raw_df):
         lambda row: _find_header_row(pd.DataFrame([row.tolist()]), scan_rows=1) == 0,
         axis=1,
     )
-    return df.loc[~repeated_headers].reset_index(drop=True)
+    df = df.loc[~repeated_headers].reset_index(drop=True)
+    if len(df.columns):
+        name_index = find_name_column_index(list(df.columns))
+        address_index = find_address_column_index(list(df.columns), name_index, df)
+        keep_rows = df.apply(
+            lambda row: bool(_cell_text(row.iloc[name_index]) or _cell_text(row.iloc[address_index])),
+            axis=1,
+        )
+        df = df.loc[keep_rows].reset_index(drop=True)
+    return df
 
 
 def read_uploaded_table(file_bytes, file_name):
@@ -655,18 +692,41 @@ def find_name_column_index(columns):
     return 1 if len(columns) > 1 else 0
 
 
-def find_address_column_index(columns, name_index):
-    """대상명 열과 겹치지 않는 주소 열을 선택한다."""
+def find_address_column_index(columns, name_index, df=None):
+    """대상명 열과 겹치지 않는 주소 열을 선택한다. 실제 주소값이 많은 열을 우선한다."""
     normalized = [_header_text(column) for column in columns]
-    corrected = next((idx for idx, token in enumerate(normalized) if "정제" in token), None)
-    if corrected is not None and corrected != name_index:
-        return corrected
+
+    def score(idx):
+        if idx == name_index:
+            return -1
+        token = normalized[idx]
+        header_score = 0
+        if "정제" in token and any(word in token for word in ADDRESS_HEADER_WORDS):
+            header_score += 30
+        elif any(word in token for word in ADDRESS_HEADER_WORDS):
+            header_score += 20
+        if any(word in token for word in ("조회", "검색", "상태", "결과", "비고", "일시")):
+            header_score -= 40
+        data_score = 0
+        if df is not None and idx < len(df.columns):
+            data_score = _address_column_score(df.iloc[:, idx]) * 5
+        return header_score + data_score
+
+    if not columns:
+        return 0
+    candidates = [idx for idx in range(len(columns)) if idx != name_index]
+    best = max(candidates, key=score) if candidates else 0
+    if score(best) > 0:
+        return best
+
     address = next(
         (idx for idx, token in enumerate(normalized)
          if idx != name_index and any(word in token for word in ADDRESS_HEADER_WORDS)),
         None,
     )
     return address if address is not None else min(3, len(columns) - 1)
+
+
 
 
 def _clean_xml_text(s: str) -> str:
@@ -2959,7 +3019,13 @@ with page_basic:
             api_calls += 1
 
         for record in records:
-            nm, ad = str(record.get(name_key, "")), str(record.get(address_key, ""))
+            nm, ad = _cell_text(record.get(name_key, "")), _cell_text(record.get(address_key, ""))
+            if not nm and not ad:
+                continue
+            if not ad:
+                rows.append({"대상명": nm, "주소": ad, "위도": None, "경도": None,
+                             "상태": "⚠️ 주소 없음", "비고": "주소 칸이 비어 있어 검색하지 않았습니다."})
+                continue
             file_lat = file_lng = None
             if lat_key and lng_key:
                 try:
@@ -2992,10 +3058,10 @@ with page_basic:
     if df is not None and len(df):
         pre_cols = list(df.columns)
         pre_name_idx = find_name_column_index(pre_cols)
-        pre_addr_idx = find_address_column_index(pre_cols, pre_name_idx)
+        pre_addr_idx = find_address_column_index(pre_cols, pre_name_idx, df)
         pre_lat = next((c for c in pre_cols if "위도" in str(c) or str(c).lower() == "lat"), None)
         pre_lng = next((c for c in pre_cols if "경도" in str(c) or str(c).lower() in ("lng", "lon")), None)
-        coord_signature = tuple((str(row[pre_cols[pre_name_idx]]), str(row[pre_cols[pre_addr_idx]]))
+        coord_signature = tuple((_cell_text(row[pre_cols[pre_name_idx]]), _cell_text(row[pre_cols[pre_addr_idx]]))
                                 for _, row in df.iterrows())
         if st.session_state.get("coord_signature") != coord_signature:
             st.session_state["coord_signature"] = coord_signature
