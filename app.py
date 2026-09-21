@@ -2038,7 +2038,7 @@ st.markdown(
       }
       .paseru-mascot-icon {
         flex: 0 0 auto;
-        width: clamp(92px, 22vw, 124px);
+        width: clamp(112px, 28vw, 156px);
         aspect-ratio: 1 / 1;
         margin-top: .28rem;
         border-radius: 20px;
@@ -2070,6 +2070,7 @@ st.markdown(
         word-break: keep-all;
         overflow-wrap: normal;
         text-align: center;
+        max-width: 100%;
       }
       .paseru-login-copy .nowrap { white-space: nowrap; }
       .paseru-flow-card {
@@ -2135,9 +2136,9 @@ st.markdown(
           margin-top: .35rem;
         }
         .paseru-mascot-icon {
-          width: 76px;
+          width: 94px;
           margin-top: .28rem;
-          border-radius: 16px;
+          border-radius: 18px;
         }
         .paseru-login-kicker {
           font-size: .92rem;
@@ -2170,8 +2171,8 @@ st.markdown(
         <div class="paseru-brand-copy">
           <div class="paseru-login-title">FireSafe Route Origin</div>
           <div class="paseru-login-copy">
-            방문·점검·순찰 주소 목록을 올리면<br>
-            <span class="nowrap">내 핸드폰 카카오맵으로 온다</span>
+            <div>방문·점검·순찰 주소 목록을 올리면</div>
+            <div>내 핸드폰 카카오맵으로 온다</div>
           </div>
         </div>
       </div>
