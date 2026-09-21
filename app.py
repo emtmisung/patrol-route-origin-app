@@ -2725,6 +2725,7 @@ with page_basic:
             "🧪 기능 확인용 예시 18건 불러오기 (성주군 주요 대상)",
             value=(restored_df is None),
             help="평가관이 별도 엑셀 파일 없이 바로 확인할 수 있도록 오류 1건만 남긴 평가용 목록을 불러옵니다.",
+            key="load_sample_targets",
         )
         if use_sample:
             st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
@@ -2793,9 +2794,45 @@ with page_basic:
                 border-color:#4e9a6b!important; background:#d9efe2!important;
                 color:#111827!important; -webkit-text-fill-color:#111827!important;
               }
+              .st-key-load_sample_targets {
+                border:2px solid #f59e0b!important;
+                background:#fff7ed!important;
+                border-radius:14px!important;
+                padding:0.85rem 0.95rem!important;
+                margin:0.6rem 0 1rem 0!important;
+                box-shadow:0 10px 24px rgba(245, 158, 11, 0.16)!important;
+              }
+              .st-key-load_sample_targets label p {
+                color:#9a3412!important;
+                -webkit-text-fill-color:#9a3412!important;
+                font-weight:900!important;
+                font-size:1.05rem!important;
+              }
+              .st-key-load_sample_targets [data-testid="stCheckbox"] > label {
+                align-items:flex-start!important;
+              }
               .st-key-load_selected_browser_draft button,
               .st-key-delete_selected_browser_draft button {
                 height:4.5rem!important; min-height:4.5rem!important; padding:0!important; font-weight:750!important;
+              }
+              .st-key-load_selected_browser_draft button {
+                border:2px solid #f59e0b!important;
+                background:#fff3cd!important;
+                color:#7c2d12!important;
+                -webkit-text-fill-color:#7c2d12!important;
+                box-shadow:0 8px 18px rgba(245, 158, 11, 0.16)!important;
+              }
+              .st-key-load_selected_browser_draft button:hover {
+                border-color:#d97706!important;
+                background:#fde68a!important;
+                color:#7c2d12!important;
+                -webkit-text-fill-color:#7c2d12!important;
+              }
+              .st-key-delete_selected_browser_draft button {
+                border:1px solid #cbd5e1!important;
+                background:#f8fafc!important;
+                color:#334155!important;
+                -webkit-text-fill-color:#334155!important;
               }
             </style>
             """,
