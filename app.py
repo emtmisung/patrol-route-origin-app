@@ -49,6 +49,8 @@ MOBILE_TRANSFER_SECRET = str(
 APP_PUBLIC_URL = str(
     st.secrets.get("APP_PUBLIC_URL", "https://faseru-origin.streamlit.app/")
 ).rstrip("/")
+AUTH_REMEMBER_KEY = "paseru_auth_remember_v1"
+AUTH_REMEMBER_DAYS = 30
 
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
@@ -190,6 +192,40 @@ def route_execution_content(source_name, patrol_title, station_query, station_re
         "meta": meta,
     })
     return payload
+
+
+def make_auth_remember_token():
+    timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+    secret = f"{APP_PASSWORD}|{MOBILE_TRANSFER_SECRET}"
+    signature = hmac.new(
+        secret.encode("utf-8"),
+        f"paseru-auth:{timestamp}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"v1:{timestamp}:{signature}"
+
+
+def valid_auth_remember_token(raw_token):
+    if not APP_PASSWORD or not raw_token:
+        return False
+    try:
+        version, timestamp_text, signature = str(raw_token).split(":", 2)
+        timestamp = int(timestamp_text)
+    except (TypeError, ValueError):
+        return False
+    if version != "v1":
+        return False
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    max_age = AUTH_REMEMBER_DAYS * 24 * 60 * 60
+    if timestamp > now_ts + 300 or now_ts - timestamp > max_age:
+        return False
+    secret = f"{APP_PASSWORD}|{MOBILE_TRANSFER_SECRET}"
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        f"paseru-auth:{timestamp}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 
 def browser_draft_label(payload):
@@ -2297,7 +2333,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# 최근 작업과 자동로그인은 서버가 아니라 현재 기기의 브라우저 저장소에 보관한다.
+browser_storage = LocalStorage(key="paseru_browser_storage")
+browser_storage_items = dict(browser_storage.getAll() or {})
+
 # 공개 주소를 통한 무단 API 사용을 막기 위한 앱 입구 인증
+if not st.session_state.get("paseru_authenticated", False):
+    saved_auth_token = browser_storage_items.get(AUTH_REMEMBER_KEY)
+    if valid_auth_remember_token(saved_auth_token):
+        st.session_state["paseru_authenticated"] = True
+    elif saved_auth_token:
+        browser_storage.eraseItem(AUTH_REMEMBER_KEY, key="erase_expired_paseru_auth")
+
 if not st.session_state.get("paseru_authenticated", False):
     with st.container(border=True):
         st.markdown(
@@ -2307,6 +2354,11 @@ if not st.session_state.get("paseru_authenticated", False):
         st.caption("이 앱은 승인된 업무 담당자만 이용할 수 있습니다.")
         with st.form("paseru_login_form", clear_on_submit=False):
             entered_password = st.text_input("비밀번호", type="password", placeholder="비밀번호를 입력하세요")
+            remember_login = st.checkbox(
+                "이 기기에서 다음부터 자동 로그인",
+                value=True,
+                help="개인 휴대폰이나 업무용 PC에서만 켜두세요. 비밀번호가 바뀌면 자동로그인은 해제됩니다.",
+            )
             login_submitted = st.form_submit_button("앱 시작하기", type="primary", use_container_width=True)
 
         with st.expander("📌 PC·휴대폰에 바로가기 만들기", expanded=False):
@@ -2331,7 +2383,7 @@ if not st.session_state.get("paseru_authenticated", False):
                 2. 메뉴를 내려 **홈 화면에 추가**를 선택합니다.
                 3. 오른쪽 위 **추가**를 누릅니다.
 
-                ※ 바로가기를 만들어도 앱의 업무자료 보호를 위한 비밀번호 인증은 계속 필요합니다.
+                ※ 첫 로그인 때 자동로그인을 켜두면 같은 기기에서는 다음 접속부터 비밀번호 입력을 건너뜁니다.
                 """
             )
             st.caption("아래 주소 오른쪽의 복사 버튼을 누른 뒤 네이버 앱 주소창에 붙여넣을 수 있습니다.")
@@ -2356,13 +2408,20 @@ if not st.session_state.get("paseru_authenticated", False):
                 st.error("관리자가 Streamlit Secrets에 APP_PASSWORD를 먼저 등록해야 합니다.")
             elif hmac.compare_digest(entered_password, APP_PASSWORD):
                 st.session_state["paseru_authenticated"] = True
+                if remember_login:
+                    browser_storage.setItem(
+                        AUTH_REMEMBER_KEY,
+                        make_auth_remember_token(),
+                        key="save_paseru_auth_remember",
+                    )
+                else:
+                    browser_storage.eraseItem(AUTH_REMEMBER_KEY, key="erase_paseru_auth_remember")
                 st.rerun()
             else:
                 st.error("비밀번호가 올바르지 않습니다.")
     st.stop()
 
-# 최근 작업은 서버가 아니라 현재 PC의 브라우저 저장소에만 7일간 보관한다.
-browser_storage = LocalStorage(key="paseru_browser_storage")
+# 최근 작업은 서버가 아니라 현재 기기의 브라우저 저장소에만 7일간 보관한다.
 if not st.session_state.get("browser_draft_loaded", False):
     saved_drafts = []
     storage_items = dict(browser_storage.getAll() or {})
