@@ -2024,28 +2024,28 @@ st.markdown(
           linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
         box-shadow: 0 5px 18px rgba(23, 38, 58, .07);
         overflow: hidden;
+        position: relative;
       }
       .paseru-hero-top {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: .85rem;
+        position: relative;
       }
       .paseru-hero-text {
         min-width: 0;
-        flex: 1 1 auto;
+        padding-right: clamp(70px, 19vw, 112px);
       }
       .paseru-mascot-icon {
-        flex: 0 0 auto;
-        width: clamp(76px, 21vw, 112px);
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: clamp(62px, 18vw, 100px);
         aspect-ratio: 1 / 1;
-        border-radius: 22px;
+        border-radius: 20px;
         object-fit: cover;
         box-shadow: 0 8px 22px rgba(11, 47, 95, .17);
       }
       .paseru-login-kicker {
         color: #a33a3f;
-        font-size: clamp(1.02rem, 3.8vw, 1.18rem);
+        font-size: clamp(.94rem, 3.5vw, 1.15rem);
         font-weight: 750;
         line-height: 1.45;
         word-break: keep-all;
@@ -2127,10 +2127,14 @@ st.markdown(
       }
       @media (max-width: 560px) {
         .paseru-login-hero { padding: .95rem .95rem 1.05rem; }
-        .paseru-hero-top { gap: .55rem; }
+        .paseru-hero-text { padding-right: 64px; }
         .paseru-mascot-icon {
-          width: 72px;
-          border-radius: 18px;
+          width: 56px;
+          border-radius: 15px;
+        }
+        .paseru-login-kicker {
+          font-size: .88rem;
+          line-height: 1.35;
         }
         .paseru-flow-card { padding: .78rem .45rem .72rem; }
         .paseru-flow-steps { gap: .15rem; }
