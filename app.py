@@ -1967,7 +1967,7 @@ components.html(
 try {{
   const d = window.parent.document;
   if (d && !d.getElementById('paseru-manifest')) {{
-    const iconUrl = "{iconUrl}";
+    const iconUrl = "{PWA_ICON_URL}";
     const manifest = {{
       name: "파세루 오리진 - 순찰노선 설계기",
       short_name: "파세루",
