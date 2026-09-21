@@ -174,6 +174,24 @@ def browser_draft_content(source_name, patrol_title, station_query, station_resu
     }
 
 
+def route_execution_content(source_name, patrol_title, station_query, station_result,
+                            targets_df, coords_df, coord_api_calls, station,
+                            route_results, far_points, meta):
+    """PC에서 생성한 최종 노선 결과를 휴대폰 현장 실행용으로 전달한다."""
+    payload = browser_draft_content(
+        source_name, patrol_title, station_query, station_result,
+        targets_df, coords_df, coord_api_calls,
+    )
+    payload.update({
+        "handoff_type": "route_execution",
+        "station": station,
+        "route_results": route_results,
+        "far_points": far_points,
+        "meta": meta,
+    })
+    return payload
+
+
 def browser_draft_label(payload):
     """저장된 작업 선택 목록에 표시할 한 줄 설명을 만든다."""
     source_name = payload.get("source_name") or payload.get("patrol_title") or "이전 저장자료"
@@ -315,8 +333,14 @@ def apply_browser_draft(payload, storage_key):
          str(row[restored_columns[restored_addr_idx]]))
         for _, row in restored_targets.iterrows()
     )
-    for stale_key in ("station", "route_results", "far_points", "meta"):
-        st.session_state.pop(stale_key, None)
+    if payload.get("handoff_type") == "route_execution" and payload.get("route_results"):
+        st.session_state["station"] = payload.get("station") or restored_station
+        st.session_state["route_results"] = payload.get("route_results") or []
+        st.session_state["far_points"] = payload.get("far_points") or []
+        st.session_state["meta"] = payload.get("meta") or {}
+    else:
+        for stale_key in ("station", "route_results", "far_points", "meta"):
+            st.session_state.pop(stale_key, None)
 
     st.session_state["active_browser_draft_key"] = storage_key
     st.session_state["browser_source_name"] = (
@@ -1584,14 +1608,14 @@ def kakao_url(name, lat, lng):
             f"{quote(str(name), safe='')},{lat},{lng}")
 
 
-KAKAO_MAX_VIA = 5  # 카카오맵 자동차 길찾기 URL이 지원하는 경유지 최대 개수
+KAKAO_MAX_ROUTE_POINTS = 5  # 카카오맵 한 번 실행에서 현장 사용 기준으로 묶을 최대 지점 수
 
 
 def kakao_route_url(origin, destinations):
     """카카오맵 자동차 길찾기 링크를 만든다.
 
     origin은 출발지, destinations의 마지막 항목은 목적지이며 그 앞 항목은
-    경유지로 전달된다. destinations는 최대 6개(경유지 5 + 목적지)다.
+    경유지로 전달된다. 현장 혼선을 줄이기 위해 한 번에 최대 5개 지점만 묶는다.
     """
     if not destinations:
         return ""
@@ -1607,24 +1631,31 @@ def kakao_route_url(origin, destinations):
 def kakao_route_links(station, legs):
     """소방서 → 경유지 순서 → 소방서로 돌아오는 카카오맵 링크 목록.
 
-    경유지가 5개를 넘는 긴 노선은 앞 구간의 마지막 목적지를 다음 구간의
-    출발지로 이어서 분할한다.
+    카카오맵 실행 한 번에 5개 지점만 담고, 다음 구간은 앞 구간의 마지막
+    지점을 출발점으로 겹쳐 이어간다. 예: 1-2-3-4-5 / 5-6-7-8-9 / 9-10.
     반환: [(URL, 출발지, 구간 목적지 목록), ...]
     """
     stops = [{"name": lg["to"], "lat": lg["lat"], "lng": lg["lng"]} for lg in legs]
     if not stops:
         return []
 
-    remaining = stops + [station]
-    origin = station
     links = []
-    max_destinations = KAKAO_MAX_VIA + 1
-    while remaining:
-        destinations = remaining[:max_destinations]
+    origin = station
+    start_index = 0
+    first_segment = True
+
+    while start_index < len(stops):
+        take_count = KAKAO_MAX_ROUTE_POINTS if first_segment else max(1, KAKAO_MAX_ROUTE_POINTS - 1)
+        destinations = stops[start_index:start_index + take_count]
         links.append((kakao_route_url(origin, destinations), origin, destinations))
-        remaining = remaining[max_destinations:]
-        if remaining:
-            origin = destinations[-1]
+        start_index += take_count
+        origin = destinations[-1]
+        first_segment = False
+
+    # 복귀 안내가 필요한 업무를 위해 마지막 대상에서 출발지로 돌아오는 구간도 제공한다.
+    if links and (origin["lat"] != station["lat"] or origin["lng"] != station["lng"]):
+        links.append((kakao_route_url(origin, [station]), origin, [station]))
+
     return links
 
 
@@ -2847,7 +2878,7 @@ with page_basic:
                 unsafe_allow_html=True,
             )
         with notice_mobile:
-            transfer_notice_title = "💻 PC 이어하기" if IS_MOBILE_DEVICE else "📱 휴대폰 이어하기"
+            transfer_notice_title = "💻 PC 자료 넘기기" if IS_MOBILE_DEVICE else "📱 휴대폰 자료 넘기기"
             transfer_notice_detail = (
                 "일회용 링크 · PC 7일 보관"
                 if IS_MOBILE_DEVICE
@@ -2916,18 +2947,18 @@ with page_basic:
         coordinate_panel, mobile_panel = st.columns(2, gap="medium")
         with mobile_panel.container(border=True):
             if IS_MOBILE_DEVICE:
-                st.markdown("### 💻 PC로 이어하기")
-                st.caption("대상목록·출발지·좌표를 일회용 링크로 PC에 전달합니다.")
+                st.markdown("### 💻 PC로 자료 넘기기")
+                st.caption("대상목록·출발지·좌표검색 결과를 PC로 넘깁니다.")
             else:
-                st.markdown("### 📱 휴대폰으로 이어하기")
-                st.caption("대상목록·출발지·좌표를 일회용 QR로 휴대폰에 전달합니다.")
+                st.markdown("### 📱 휴대폰으로 자료 넘기기")
+                st.caption("대상목록·출발지·좌표검색 결과를 휴대폰으로 넘깁니다.")
             coords_ready_for_transfer = st.session_state.get("coords_df") is not None
             st.caption("좌표 검색 완료 후 사용할 수 있습니다.")
             if st.button(
                 (
-                    "💻 PC로 이어하기 링크 만들기"
+                    "💻 PC로 자료 넘기기 링크 만들기"
                     if IS_MOBILE_DEVICE
-                    else "📲 휴대폰으로 이어하기 QR 만들기"
+                    else "📲 휴대폰으로 자료 넘기기 QR 만들기"
                 ),
                 type="primary",
                 use_container_width=True,
@@ -5050,6 +5081,79 @@ with page_build:
                         use_container_width=True,
                     )
 
+                st.markdown("### 📱 휴대폰에서 노선 실행하기")
+                st.caption(
+                    "PC에서 만든 최종 노선 결과를 휴대폰으로 열어, 구간별 카카오맵 버튼을 순서대로 실행합니다. "
+                    "파일 업로드나 노선 생성을 다시 하지 않습니다."
+                )
+                if st.button(
+                    "📲 휴대폰에서 노선 실행하기 QR 만들기",
+                    type="primary",
+                    use_container_width=True,
+                    key="create_route_execution_transfer_qr",
+                ):
+                    now_timestamp = datetime.now().timestamp()
+                    try:
+                        source_df = st.session_state.get("browser_restored_df")
+                        if source_df is None or source_df.empty:
+                            source_df = pd.DataFrame([
+                                {"대상명": leg.get("to"), "주소": leg.get("to_address", "")}
+                                for route in route_results for leg in route.get("legs", [])
+                            ])
+                        execution_payload = {
+                            **route_execution_content(
+                                st.session_state.get("browser_source_name") or safe_title,
+                                meta.get("title") or patrol_title,
+                                station_query,
+                                station_result,
+                                minimum_transfer_targets(source_df),
+                                st.session_state.get("coords_df"),
+                                st.session_state.get("coord_api_calls", 0),
+                                station,
+                                route_results,
+                                far_points,
+                                meta,
+                            ),
+                            "saved_at": now_timestamp,
+                            "expires_at": now_timestamp + BROWSER_DRAFT_DAYS * 24 * 60 * 60,
+                        }
+                        transfer_token, transfer_expires_at = create_mobile_transfer(execution_payload)
+                        transfer_url = f"{APP_PUBLIC_URL}/?transfer={quote(transfer_token, safe='')}"
+                        st.session_state["route_execution_transfer_qr"] = {
+                            "url": transfer_url,
+                            "png": make_qr_png(transfer_url),
+                            "expires_at": transfer_expires_at,
+                        }
+                    except (OSError, ValueError) as exc:
+                        st.session_state.pop("route_execution_transfer_qr", None)
+                        st.error(str(exc))
+
+                route_execution_qr = st.session_state.get("route_execution_transfer_qr")
+                if route_execution_qr:
+                    remaining_seconds = int(
+                        float(route_execution_qr["expires_at"]) - datetime.now().timestamp()
+                    )
+                    if remaining_seconds > 0:
+                        st.success("노선 실행용 QR이 준비되었습니다. 현장 휴대폰으로 촬영하세요.")
+                        st.image(
+                            route_execution_qr["png"],
+                            caption="휴대폰에서 노선 결과 열기",
+                            width=260,
+                        )
+                        st.markdown(
+                            "1. QR 촬영 · 파세루 열기  \n"
+                            "2. 앱 비밀번호 입력  \n"
+                            "3. 노선 결과 화면에서 노선1-1, 노선1-2 순서대로 카카오맵 열기"
+                        )
+                        st.warning(
+                            "이 QR은 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
+                            "가져온 뒤에는 휴대폰 브라우저에 7일간 보관됩니다."
+                        )
+                    else:
+                        st.session_state.pop("route_execution_transfer_qr", None)
+                        st.warning("노선 실행용 QR 유효시간 10분이 지났습니다. 새 QR을 만들어주세요.")
+
+
                 link_box = (st.popover("🔗 카카오 경로 링크 열기", use_container_width=True)
                             if hasattr(st, "popover") else st.expander("🔗 카카오 경로 링크 열기"))
                 with link_box:
@@ -5171,7 +5275,7 @@ with page_build:
                                          "구간시간(분)": round(rr["back_min"])})
                             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-                            st.markdown("**🟨 카카오맵 — 전체 순찰코스와 QR코드**")
+                            st.markdown("**🟨 카카오맵 — 구간별 노선 실행과 QR코드**")
                             kakao_links = kakao_route_links(station, rr["legs"])
                             st.download_button(
                                 f"🖨 노선 {rr['route_no']} QR 인쇄용 문서",
@@ -5208,8 +5312,8 @@ with page_build:
 
                             if len(kakao_links) > 1:
                                 st.caption(
-                                    f"※ 카카오맵은 경유지를 한 구간에 최대 {KAKAO_MAX_VIA}개까지 지원하므로 "
-                                    "긴 노선은 이어지는 구간으로 나눴습니다. 현장에서 순서대로 열어 주세요."
+                                    f"※ 카카오맵은 현장 실행 안정성을 위해 한 구간을 최대 {KAKAO_MAX_ROUTE_POINTS}개 지점으로 나눕니다. "
+                                    "앞 구간의 마지막 지점을 다음 구간의 출발점으로 겹쳐 이어갑니다. 현장에서 순서대로 열어 주세요."
                                 )
                             else:
                                 st.caption(
