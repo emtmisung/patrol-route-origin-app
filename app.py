@@ -2027,17 +2027,18 @@ st.markdown(
         position: relative;
       }
       .paseru-hero-top {
-        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: .78rem;
       }
       .paseru-hero-text {
         min-width: 0;
-        padding-right: clamp(70px, 19vw, 112px);
+        flex: 1 1 auto;
       }
       .paseru-mascot-icon {
-        position: absolute;
-        top: 0;
-        right: 0;
-        width: clamp(62px, 18vw, 100px);
+        flex: 0 0 auto;
+        order: -1;
+        width: clamp(82px, 20vw, 108px);
         aspect-ratio: 1 / 1;
         border-radius: 20px;
         object-fit: cover;
@@ -2067,6 +2068,7 @@ st.markdown(
         line-height: 1.6;
         word-break: keep-all;
         overflow-wrap: normal;
+        text-align: center;
       }
       .paseru-login-copy .nowrap { white-space: nowrap; }
       .paseru-flow-card {
@@ -2127,10 +2129,12 @@ st.markdown(
       }
       @media (max-width: 560px) {
         .paseru-login-hero { padding: .95rem .95rem 1.05rem; }
-        .paseru-hero-text { padding-right: 64px; }
+        .paseru-hero-top {
+          gap: .55rem;
+        }
         .paseru-mascot-icon {
-          width: 56px;
-          border-radius: 15px;
+          width: 68px;
+          border-radius: 16px;
         }
         .paseru-login-kicker {
           font-size: .88rem;
@@ -2155,7 +2159,7 @@ st.markdown(
     <div class="paseru-login-hero">
       <div class="paseru-hero-top">
         <div class="paseru-hero-text">
-          <div class="paseru-login-kicker">🚒 소방 현장 노선 편성 자동화의 시작</div>
+          <div class="paseru-login-kicker">소방 현장 노선 편성 자동화의 시작</div>
           <div class="paseru-login-title">FireSafe Route Origin</div>
           <div class="paseru-login-copy">
             방문·점검·순찰 주소 목록을 올리면<br>
