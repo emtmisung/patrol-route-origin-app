@@ -2026,19 +2026,19 @@ st.markdown(
         overflow: hidden;
         position: relative;
       }
-      .paseru-hero-top {
+      .paseru-brand-row {
         display: flex;
-        align-items: flex-start;
-        gap: .78rem;
+        align-items: center;
+        gap: .88rem;
+        margin-top: .45rem;
       }
-      .paseru-hero-text {
+      .paseru-brand-copy {
         min-width: 0;
         flex: 1 1 auto;
       }
       .paseru-mascot-icon {
         flex: 0 0 auto;
-        order: -1;
-        width: clamp(82px, 20vw, 108px);
+        width: clamp(92px, 22vw, 124px);
         aspect-ratio: 1 / 1;
         border-radius: 20px;
         object-fit: cover;
@@ -2129,16 +2129,21 @@ st.markdown(
       }
       @media (max-width: 560px) {
         .paseru-login-hero { padding: .95rem .95rem 1.05rem; }
-        .paseru-hero-top {
-          gap: .55rem;
+        .paseru-brand-row {
+          gap: .58rem;
+          margin-top: .35rem;
         }
         .paseru-mascot-icon {
-          width: 68px;
+          width: 76px;
           border-radius: 16px;
         }
         .paseru-login-kicker {
-          font-size: .88rem;
+          font-size: .92rem;
           line-height: 1.35;
+          text-align: left;
+        }
+        .paseru-login-title {
+          font-size: clamp(1.92rem, 8.7vw, 2.75rem);
         }
         .paseru-flow-card { padding: .78rem .45rem .72rem; }
         .paseru-flow-steps { gap: .15rem; }
@@ -2157,16 +2162,16 @@ st.markdown(
       }
     </style>
     <div class="paseru-login-hero">
-      <div class="paseru-hero-top">
-        <div class="paseru-hero-text">
-          <div class="paseru-login-kicker">소방 현장 노선 편성 자동화의 시작</div>
+      <div class="paseru-login-kicker">소방 현장 노선 편성 자동화의 시작</div>
+      <div class="paseru-brand-row">
+        <img class="paseru-mascot-icon" src="__PASERU_ICON_URL__" alt="파세루 캐릭터">
+        <div class="paseru-brand-copy">
           <div class="paseru-login-title">FireSafe Route Origin</div>
           <div class="paseru-login-copy">
             방문·점검·순찰 주소 목록을 올리면<br>
             <span class="nowrap">내 핸드폰 카카오맵으로 온다</span>
           </div>
         </div>
-        <img class="paseru-mascot-icon" src="__PASERU_ICON_URL__" alt="파세루 캐릭터">
       </div>
       <div class="paseru-flow-card" aria-label="파세루 이용 흐름">
         <div class="paseru-flow-steps">
