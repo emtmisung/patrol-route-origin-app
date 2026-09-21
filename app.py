@@ -1957,34 +1957,55 @@ try {{
 inject_social_preview_meta()
 
 
+PWA_ICON_URL = "https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png"
+
+
 # ---- PWA: 홈 화면에 앱처럼 추가할 수 있도록 매니페스트를 부모 문서에 주입(가능한 환경에서) ----
 components.html(
-    """
+    f"""
 <script>
-try {
+try {{
   const d = window.parent.document;
-  if (d && !d.getElementById('paseru-manifest')) {
-    const manifest = {
+  if (d && !d.getElementById('paseru-manifest')) {{
+    const iconUrl = "{iconUrl}";
+    const manifest = {{
       name: "파세루 오리진 - 순찰노선 설계기",
       short_name: "파세루",
       description: "AI 기반 소방 순찰노선 최적화 서비스",
       start_url: ".", scope: ".", display: "standalone",
-      background_color: "#f7f8fa", theme_color: "#a33a3f",
-      icons: []
-    };
+      background_color: "#ffffff", theme_color: "#0b2f5f",
+      icons: [
+        {{ src: iconUrl, sizes: "192x192", type: "image/png", purpose: "any maskable" }},
+        {{ src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any maskable" }}
+      ]
+    }};
     const link = d.createElement('link');
     link.id = 'paseru-manifest';
     link.rel = 'manifest';
     link.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
     d.head.appendChild(link);
+
+    const favicon = d.createElement('link');
+    favicon.id = 'paseru-favicon';
+    favicon.rel = 'icon';
+    favicon.type = 'image/png';
+    favicon.href = iconUrl;
+    d.head.appendChild(favicon);
+
+    const appleIcon = d.createElement('link');
+    appleIcon.id = 'paseru-apple-touch-icon';
+    appleIcon.rel = 'apple-touch-icon';
+    appleIcon.href = iconUrl;
+    d.head.appendChild(appleIcon);
+
     const meta = d.createElement('meta');
     meta.name = 'apple-mobile-web-app-capable'; meta.content = 'yes';
     d.head.appendChild(meta);
     const theme = d.createElement('meta');
-    theme.name = 'theme-color'; theme.content = '#a33a3f';
+    theme.name = 'theme-color'; theme.content = '#0b2f5f';
     d.head.appendChild(theme);
-  }
-} catch (e) { /* 환경상 주입이 막히면 조용히 무시 */ }
+  }}
+}} catch (e) {{ /* 환경상 주입이 막히면 조용히 무시 */ }}
 </script>
 """,
     height=0,
