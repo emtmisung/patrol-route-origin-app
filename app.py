@@ -2555,12 +2555,14 @@ if not st.session_state.get("paseru_authenticated", False):
                         make_auth_remember_token(),
                         key="save_paseru_auth_remember",
                     )
+                    st.success("자동로그인을 이 기기에 저장했습니다. 다음 접속부터 비밀번호 입력을 건너뜁니다.")
                 else:
                     browser_storage.eraseItem(AUTH_REMEMBER_KEY, key="erase_paseru_auth_remember")
-                st.rerun()
+                    st.info("자동로그인을 사용하지 않고 이번 접속만 인증합니다.")
             else:
                 st.error("비밀번호가 올바르지 않습니다.")
-    st.stop()
+    if not st.session_state.get("paseru_authenticated", False):
+        st.stop()
 
 # 최근 작업은 서버가 아니라 현재 기기의 브라우저 저장소에만 7일간 보관한다.
 if not st.session_state.get("browser_draft_loaded", False):
