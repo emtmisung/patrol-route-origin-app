@@ -2194,15 +2194,20 @@ st.markdown(
       .paseru-login-copy {
         margin-top: .95rem;
         color: #17263a;
-        font-size: clamp(.98rem, 3.6vw, 1.18rem);
+        font-size: clamp(.98rem, 2vw, 1.18rem);
         font-weight: 760;
         line-height: 1.6;
         word-break: keep-all;
         overflow-wrap: normal;
-        text-align: center;
+        text-align: left;
         max-width: 100%;
+        white-space: nowrap;
       }
-      .paseru-login-copy > div { white-space: nowrap; }
+      .paseru-login-copy > div {
+        display: inline;
+        white-space: nowrap;
+      }
+      .paseru-login-copy > div + div::before { content: " "; }
       .paseru-login-copy .nowrap { white-space: nowrap; }
       .paseru-flow-card {
         margin-top: 1.05rem;
@@ -2280,6 +2285,15 @@ st.markdown(
         .paseru-login-title {
           font-size: clamp(1.88rem, 8.5vw, 2.68rem);
         }
+        .paseru-login-copy {
+          text-align: center;
+          white-space: normal;
+        }
+        .paseru-login-copy > div {
+          display: block;
+          white-space: nowrap;
+        }
+        .paseru-login-copy > div + div::before { content: ""; }
         .paseru-flow-card { padding: .78rem .45rem .72rem; }
         .paseru-flow-steps { gap: .15rem; }
         .paseru-flow-step:not(:last-child)::after {
