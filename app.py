@@ -374,8 +374,9 @@ def apply_browser_draft(payload, storage_key):
         st.session_state["route_results"] = payload.get("route_results") or []
         st.session_state["far_points"] = payload.get("far_points") or []
         st.session_state["meta"] = payload.get("meta") or {}
+        st.session_state["route_execution_mode"] = True
     else:
-        for stale_key in ("station", "route_results", "far_points", "meta"):
+        for stale_key in ("station", "route_results", "far_points", "meta", "route_execution_mode"):
             st.session_state.pop(stale_key, None)
 
     st.session_state["active_browser_draft_key"] = storage_key
@@ -1695,6 +1696,67 @@ def kakao_route_links(station, legs):
 
     return links
 
+
+def render_route_execution_panel(station, route_results, meta=None):
+    """휴대폰으로 넘긴 최종 노선을 탭 이동 없이 바로 실행할 수 있게 보여준다."""
+    if not station or not route_results:
+        return
+    title = (meta or {}).get("title") or "현장 노선"
+    total_segments = sum(len(kakao_route_links(station, rr.get("legs", []))) for rr in route_results)
+    st.markdown(
+        """
+        <style>
+          .paseru-route-handoff {
+            margin: .25rem 0 1rem;
+            padding: 1rem 1.05rem;
+            border: 2px solid #0b2f5f;
+            border-left: 9px solid #0b2f5f;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+            box-shadow: 0 10px 26px rgba(11, 47, 95, .14);
+          }
+          .paseru-route-handoff-title {
+            color:#0b2f5f;
+            font-size:1.18rem;
+            font-weight:900;
+            line-height:1.35;
+          }
+          .paseru-route-handoff-sub {
+            margin-top:.25rem;
+            color:#344054;
+            font-size:.94rem;
+            font-weight:700;
+            line-height:1.45;
+            word-break:keep-all;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="paseru-route-handoff">'
+        '<div class="paseru-route-handoff-title">📱 현장 노선 이어가기</div>'
+        f'<div class="paseru-route-handoff-sub">{html.escape(str(title))}<br>'
+        f'PC에서 생성한 노선을 그대로 불러왔습니다. 아래 버튼을 순서대로 눌러 카카오맵 안내를 이어가세요. '
+        f'총 {int(total_segments)}개 실행 구간입니다.</div></div>',
+        unsafe_allow_html=True,
+    )
+    for rr in route_results:
+        route_links = kakao_route_links(station, rr.get("legs", []))
+        if not route_links:
+            continue
+        st.markdown(f"**노선 {rr.get('route_no', '')}**")
+        for link_no, (kurl, origin, destinations) in enumerate(route_links, start=1):
+            suffix = "" if len(route_links) == 1 else f"-{link_no}"
+            sequence = " → ".join([str(origin.get("name", "출발"))] + [str(p.get("name", "")) for p in destinations])
+            st.link_button(
+                f"🚗 노선 {rr.get('route_no', '')}{suffix} 카카오맵 열기",
+                kurl,
+                use_container_width=True,
+            )
+            st.caption(sequence)
+
+
 def make_qr_png(data):
     """링크를 휴대폰으로 넘길 수 있는 QR코드 PNG 바이트로 만든다."""
     qr = qrcode.QRCode(
@@ -2616,13 +2678,26 @@ if st.session_state.pop("browser_draft_restored_notice", False):
     )
 
 if st.session_state.pop("browser_draft_mobile_imported_notice", False):
-    st.success(
-        "✅ PC 작업을 이 휴대폰으로 가져왔습니다. "
-        "이 휴대폰의 현재 브라우저에 최대 3개 중 하나로 7일간 자동 보관됩니다."
-    )
+    if st.session_state.get("route_execution_mode"):
+        st.success(
+            "✅ PC에서 만든 최종 노선을 이 휴대폰으로 가져왔습니다. "
+            "아래의 현장 노선 이어가기에서 카카오맵을 바로 실행하세요."
+        )
+    else:
+        st.success(
+            "✅ PC 작업을 이 휴대폰으로 가져왔습니다. "
+            "이 휴대폰의 현재 브라우저에 최대 3개 중 하나로 7일간 자동 보관됩니다."
+        )
 
 if st.session_state.pop("browser_draft_deleted_notice", False):
     st.success("✅ 선택한 저장 작업을 이 PC에서 삭제했습니다.")
+
+if st.session_state.get("route_execution_mode") and st.session_state.get("route_results"):
+    render_route_execution_panel(
+        st.session_state.get("station"),
+        st.session_state.get("route_results"),
+        st.session_state.get("meta", {}),
+    )
 
 with st.expander("💡 처음 사용하시나요? 사용 순서와 조건을 설정하는 이유", expanded=False):
     st.markdown(
@@ -5326,7 +5401,7 @@ with page_build:
                         st.markdown(
                             "1. QR 촬영 · 파세루 열기  \n"
                             "2. 앱 비밀번호 입력  \n"
-                            "3. 노선 결과 화면에서 노선1-1, 노선1-2 순서대로 카카오맵 열기"
+                            "3. 화면 상단의 현장 노선 이어가기에서 노선 1-1, 노선 1-2 순서대로 카카오맵 열기"
                         )
                         st.warning(
                             "이 QR은 만든 뒤 10분 이내에 한 번만 사용할 수 있습니다. "
