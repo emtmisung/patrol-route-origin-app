@@ -4247,15 +4247,20 @@ with page_details:
                 hydrant_workdays = st.number_input("월 당번 근무일", min_value=1, max_value=31, value=10)
             with hc4:
                 hydrant_target_min = st.number_input(
-                    "노선 기본 목표시간(분)", min_value=60, max_value=240, value=90, step=10,
+                    "노선 기본 목표시간(분)",
+                    min_value=10, max_value=240, value=60, step=5,
+                    help="직접 숫자를 입력할 수 있습니다. 60분보다 짧은 노선도 편성할 수 있습니다.",
                 )
             with hc5:
                 hydrant_max_min = st.number_input(
-                    "노선 최대 허용시간(분)", min_value=60, max_value=360, value=120, step=10,
+                    "노선 최대 허용시간(분)",
+                    min_value=10, max_value=360, value=90, step=5,
+                    help="직접 숫자를 입력할 수 있습니다. 기본 목표시간보다 크게 잡으면 여유 노선을 허용합니다.",
                 )
             with hc6:
                 hydrant_inspection_min = st.number_input(
                     "소화전 1개 조사시간(분)", min_value=0, max_value=60, value=5, step=1,
+                    help="직접 숫자를 입력할 수 있습니다.",
                 )
 
             if hydrant_max_min < hydrant_target_min:
@@ -4277,8 +4282,8 @@ with page_details:
             inspect_capacity = 0
             inspect_dates = []
             st.caption(
-                f"기본 {int(hydrant_target_min)}분 이내로 편성하고, 차량별 노선이 "
-                f"{int(hydrant_workdays)}개를 넘으면 시간을 늘리도록 안내합니다."
+                f"입력한 목표시간 {int(hydrant_target_min)}분을 기준으로 편성하고, 차량별 노선이 "
+                f"{int(hydrant_workdays)}개를 넘으면 최대 허용시간 범위에서 조정하도록 안내합니다."
             )
         elif purpose == "other":
             card_title(2, "지휘관 현장방문 조건")
