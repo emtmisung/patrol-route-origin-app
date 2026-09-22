@@ -2009,6 +2009,71 @@ def sub_label(text):
     st.markdown(f'<div class="paseru-sub">{text}</div>', unsafe_allow_html=True)
 
 
+def route_generation_spinner(slot, title="노선 생성 중입니다", detail="실제 도로 기준 거리와 경유 순서를 계산하고 있습니다. 화면을 닫지 마세요."):
+    slot.markdown(
+        f"""
+        <style>
+          @keyframes paseru-route-search-spin {{
+            0% {{ transform: rotate(-18deg) scale(1); }}
+            45% {{ transform: rotate(18deg) scale(1.08); }}
+            100% {{ transform: rotate(342deg) scale(1); }}
+          }}
+          @keyframes paseru-route-card-pulse {{
+            0%, 100% {{ box-shadow: 0 12px 28px rgba(163, 58, 63, .18); }}
+            50% {{ box-shadow: 0 16px 34px rgba(163, 58, 63, .30); }}
+          }}
+          .paseru-route-running {{
+            display:flex;
+            align-items:center;
+            gap:16px;
+            margin: 0.45rem 0 1rem;
+            padding: 1rem 1.1rem;
+            border: 2px solid #ef8b36;
+            border-left: 9px solid #c74732;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #fff7ed 0%, #fff1f2 100%);
+            animation: paseru-route-card-pulse 1.25s ease-in-out infinite;
+          }}
+          .paseru-route-running .route-lens {{
+            flex: 0 0 52px;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            background:#ffffff;
+            border: 3px solid #f97316;
+            font-size: 2rem;
+            animation: paseru-route-search-spin .9s linear infinite;
+          }}
+          .paseru-route-running .route-title {{
+            color:#8a2d14;
+            font-size:1.12rem;
+            font-weight:900;
+            line-height:1.35;
+          }}
+          .paseru-route-running .route-detail {{
+            margin-top:.18rem;
+            color:#344054;
+            font-size:.95rem;
+            font-weight:700;
+            line-height:1.45;
+            word-break:keep-all;
+          }}
+        </style>
+        <div class="paseru-route-running" role="status" aria-live="polite">
+          <div class="route-lens">🔎</div>
+          <div>
+            <div class="route-title">{html.escape(title)}</div>
+            <div class="route-detail">{html.escape(detail)}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def safety_warning(text, title="주의 · 활용 범위 안내"):
     """재난대응 활용범위를 일반 안내와 구분해 보여주는 전용 경고 상자."""
     st.markdown(
@@ -4411,6 +4476,12 @@ with page_build:
 
     if run:
         route_variant = int(st.session_state.get("route_search_variant", 0))
+        route_status = st.empty()
+        route_generation_spinner(
+            route_status,
+            "노선 생성 중입니다",
+            "돋보기가 움직이는 동안 실제 도로 기준 노선과 카카오맵 연결 정보를 만들고 있습니다.",
+        )
         # ---- 중단 장치 ----------------------------------------------------
         # ① 수동 중단: 아래 '중단' 버튼을 누르면 Streamlit이 새로 실행되면서
         #    지금 돌고 있는 계산이 즉시 멈춘다.
@@ -4738,6 +4809,8 @@ with page_build:
         st.session_state["station"] = station
         st.session_state["route_results"] = route_results
         st.session_state["far_points"] = far_points
+        route_status.empty()
+
         st.session_state["meta"] = {
             "title": patrol_title, "purpose": purpose_label, "vehicle": vehicle,
             "period": (f"{period_start:%Y-%m-%d} ~ {period_end:%Y-%m-%d} "
