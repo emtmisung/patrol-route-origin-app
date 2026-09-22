@@ -1644,14 +1644,14 @@ def kakao_url(name, lat, lng):
             f"{quote(str(name), safe='')},{lat},{lng}")
 
 
-KAKAO_MAX_ROUTE_POINTS = 5  # 카카오맵 한 번 실행에서 현장 사용 기준으로 묶을 최대 지점 수
+KAKAO_MAX_ROUTE_POINTS = 5  # 카카오맵 한 번 실행에 담을 최대 목적지·경유지 수(출발지 제외)
 
 
 def kakao_route_url(origin, destinations):
     """카카오맵 자동차 길찾기 링크를 만든다.
 
     origin은 출발지, destinations의 마지막 항목은 목적지이며 그 앞 항목은
-    경유지로 전달된다. 현장 혼선을 줄이기 위해 한 번에 최대 5개 지점만 묶는다.
+    경유지로 전달된다. 현장 혼선을 줄이기 위해 한 번에 최대 5개 목적지만 묶는다.
     """
     if not destinations:
         return ""
@@ -1665,35 +1665,35 @@ def kakao_route_url(origin, destinations):
 
 
 def kakao_route_links(station, legs):
-    """소방서 → 경유지 순서 → 소방서로 돌아오는 카카오맵 링크 목록.
+    """소방서 → 경유지 순서 → 소방서 귀소까지 카카오맵 링크 목록.
 
-    카카오맵 실행 한 번에 5개 지점만 담고, 다음 구간은 앞 구간의 마지막
-    지점을 출발점으로 겹쳐 이어간다. 예: 1-2-3-4-5 / 5-6-7-8-9 / 9-10.
+    카카오맵 실행 한 번에 목적지·경유지를 5개까지 담고, 다음 구간은
+    앞 구간의 마지막 지점을 출발점으로 겹쳐 이어간다.
+    예: 출발→1→2→3→4→5 / 5→6→귀소.
     반환: [(URL, 출발지, 구간 목적지 목록), ...]
     """
     stops = [{"name": lg["to"], "lat": lg["lat"], "lng": lg["lng"]} for lg in legs]
     if not stops:
         return []
 
+    destinations_all = stops + [{
+        "name": f"{station.get('name', '출발지')} 귀소",
+        "lat": station["lat"],
+        "lng": station["lng"],
+    }]
     links = []
     origin = station
     start_index = 0
-    first_segment = True
 
-    while start_index < len(stops):
-        take_count = KAKAO_MAX_ROUTE_POINTS if first_segment else max(1, KAKAO_MAX_ROUTE_POINTS - 1)
-        destinations = stops[start_index:start_index + take_count]
+    while start_index < len(destinations_all):
+        destinations = destinations_all[start_index:start_index + KAKAO_MAX_ROUTE_POINTS]
+        if not destinations:
+            break
         links.append((kakao_route_url(origin, destinations), origin, destinations))
-        start_index += take_count
         origin = destinations[-1]
-        first_segment = False
-
-    # 복귀 안내가 필요한 업무를 위해 마지막 대상에서 출발지로 돌아오는 구간도 제공한다.
-    if links and (origin["lat"] != station["lat"] or origin["lng"] != station["lng"]):
-        links.append((kakao_route_url(origin, [station]), origin, [station]))
+        start_index += KAKAO_MAX_ROUTE_POINTS
 
     return links
-
 
 def make_qr_png(data):
     """링크를 휴대폰으로 넘길 수 있는 QR코드 PNG 바이트로 만든다."""
@@ -1869,13 +1869,13 @@ def build_printable_qr_html(station, route_results, meta):
         qr_blocks = []
         links = kakao_route_links(station, rr["legs"])
         for li, (url, origin, destinations) in enumerate(links, start=1):
-            suffix = "" if len(links) == 1 else f" {li}/{len(links)}구간"
+            suffix = "" if len(links) == 1 else f"-{li} ({li}/{len(links)}구간)"
             seq = " → ".join([origin["name"]] + [p["name"] for p in destinations])
             qr_b64 = base64.b64encode(make_qr_png(url)).decode("ascii")
             qr_blocks.append(
                 f'<section class="qr-block"><h2>노선 {rr["route_no"]}{suffix}</h2>'
                 f'<img src="data:image/png;base64,{qr_b64}" alt="노선 QR코드">'
-                f'<p class="scan">휴대폰 카메라로 스캔하면 카카오맵 전체 코스가 열립니다.</p>'
+                f'<p class="scan">휴대폰 카메라로 스캔하면 이 구간의 카카오맵 코스가 열립니다.</p>'
                 f'<p class="sequence">{html.escape(seq)}</p></section>'
             )
         people = ""
@@ -5266,7 +5266,7 @@ with page_build:
 
                 st.markdown("### 📱 휴대폰에서 노선 실행하기")
                 st.caption(
-                    "PC에서 만든 최종 노선 결과를 휴대폰으로 열어, 구간별 카카오맵 버튼을 순서대로 실행합니다. "
+                    "PC에서 만든 최종 노선 결과를 휴대폰으로 열어, 경유지가 많은 노선도 구간별 카카오맵 버튼으로 이어서 실행합니다. "
                     "파일 업로드나 노선 생성을 다시 하지 않습니다."
                 )
                 if st.button(
@@ -5343,7 +5343,7 @@ with page_build:
                     for rr in route_results:
                         route_links = kakao_route_links(station, rr["legs"])
                         for link_no, (kurl, _origin, _destinations) in enumerate(route_links, start=1):
-                            suffix = "" if len(route_links) == 1 else f" · {link_no}/{len(route_links)}구간"
+                            suffix = "" if len(route_links) == 1 else f"-{link_no} ({link_no}/{len(route_links)}구간)"
                             st.link_button(f"🚗 노선 {rr['route_no']}{suffix} 열기", kurl,
                                            use_container_width=True)
 
