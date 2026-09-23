@@ -2214,7 +2214,38 @@ try {{
 inject_social_preview_meta()
 
 
-PWA_ICON_URL = "https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png"
+PASERU_ICON_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#0b2f5f" flood-opacity=".18"/>
+    </filter>
+    <linearGradient id="pin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b56a3"/>
+      <stop offset="1" stop-color="#08264a"/>
+    </linearGradient>
+  </defs>
+  <rect x="38" y="38" width="436" height="436" rx="82" fill="#fff" stroke="#08264a" stroke-width="18" filter="url(#shadow)"/>
+  <path d="M256 72c-86 0-156 68-156 151 0 111 128 199 151 214a10 10 0 0 0 10 0c23-15 151-103 151-214 0-83-70-151-156-151z" fill="url(#pin)" stroke="#fff" stroke-width="16"/>
+  <circle cx="256" cy="218" r="106" fill="#fff" opacity=".96"/>
+  <rect x="159" y="179" width="194" height="92" rx="24" fill="#ef233c"/>
+  <rect x="185" y="199" width="142" height="48" rx="13" fill="#f8fbff"/>
+  <rect x="144" y="217" width="24" height="45" rx="10" fill="#111827"/>
+  <rect x="344" y="217" width="24" height="45" rx="10" fill="#111827"/>
+  <rect x="196" y="158" width="28" height="24" rx="8" fill="#ef233c"/>
+  <rect x="288" y="158" width="28" height="24" rx="8" fill="#ef233c"/>
+  <rect x="220" y="139" width="72" height="17" rx="7" fill="#cbd5e1"/>
+  <rect x="237" y="121" width="38" height="17" rx="7" fill="#e5edf7"/>
+  <circle cx="218" cy="224" r="11" fill="#111827"/>
+  <circle cx="294" cy="224" r="11" fill="#111827"/>
+  <path d="M238 242c10 13 26 13 36 0" fill="none" stroke="#111827" stroke-width="8" stroke-linecap="round"/>
+  <rect x="179" y="256" width="42" height="19" rx="7" fill="#ffd166"/>
+  <rect x="291" y="256" width="42" height="19" rx="7" fill="#ffd166"/>
+  <rect x="188" y="275" width="136" height="16" rx="5" fill="#e5e7eb"/>
+  <text x="256" y="386" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="900" fill="#08264a" stroke="#fff" stroke-width="9" paint-order="stroke">파세루</text>
+</svg>
+""".strip()
+PWA_ICON_URL = "data:image/svg+xml;charset=utf-8," + quote(PASERU_ICON_SVG, safe="")
 
 
 # ---- PWA: 홈 화면에 앱처럼 추가할 수 있도록 매니페스트를 부모 문서에 주입(가능한 환경에서) ----
@@ -2440,7 +2471,7 @@ st.markdown(
     <div class="paseru-login-hero">
       <div class="paseru-login-kicker">소방 현장 노선 편성 자동화의 시작</div>
       <div class="paseru-brand-row">
-        <img class="paseru-mascot-icon" src="__PASERU_ICON_URL__" alt="파세루 캐릭터">
+        <img class="paseru-mascot-icon" src="__PASERU_ICON_URL__" alt="파세루 캐릭터" onerror="this.onerror=null;this.src='__PASERU_ICON_URL__';">
         <div class="paseru-brand-copy">
           <div class="paseru-login-title">FireSafe Route Origin</div>
           <div class="paseru-login-copy">
