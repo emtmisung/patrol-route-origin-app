@@ -19,6 +19,7 @@ import folium
 import pandas as pd
 import qrcode
 import requests
+from PIL import Image
 import streamlit as st
 import streamlit.components.v1 as components
 from branca.element import Element
@@ -29,9 +30,15 @@ from streamlit_folium import st_folium
 # ----------------------------------------------------------------------------
 # 기본 설정
 # ----------------------------------------------------------------------------
+APP_ICON_PATH = Path(__file__).parent / "assets" / "paseru-icon.png"
+try:
+    APP_ICON = Image.open(APP_ICON_PATH)
+except Exception:
+    APP_ICON = "🚒"
+
 st.set_page_config(
     page_title="파세루 오리진",
-    page_icon="https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png",
+    page_icon=APP_ICON,
     layout="wide",
 )
 
@@ -2339,11 +2346,14 @@ st.markdown(
       }
       .paseru-mascot-icon {
         flex: 0 0 auto;
-        width: clamp(104px, 23vw, 132px);
-        aspect-ratio: 1 / 1;
+        width: clamp(112px, 24vw, 146px);
+        height: clamp(112px, 24vw, 146px);
         margin-top: 0;
-        border-radius: 20px;
-        object-fit: cover;
+        padding: 0;
+        border-radius: 22px;
+        object-fit: contain;
+        object-position: center;
+        background: #ffffff;
         box-shadow: 0 8px 22px rgba(11, 47, 95, .17);
       }
       .paseru-login-kicker {
