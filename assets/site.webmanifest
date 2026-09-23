@@ -1,0 +1,24 @@
+{
+  "name": "파세루 오리진",
+  "short_name": "파세루",
+  "description": "방문·점검·순찰 주소 목록을 실제 도로 기준 노선으로 편성합니다.",
+  "start_url": "https://faseru-origin.streamlit.app/",
+  "scope": "https://faseru-origin.streamlit.app/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0b2f5f",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
