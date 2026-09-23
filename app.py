@@ -2245,7 +2245,8 @@ PASERU_ICON_SVG = """
   <text x="256" y="386" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="900" fill="#08264a" stroke="#fff" stroke-width="9" paint-order="stroke">파세루</text>
 </svg>
 """.strip()
-PWA_ICON_URL = "data:image/svg+xml;charset=utf-8," + quote(PASERU_ICON_SVG, safe="")
+PASERU_ICON_FALLBACK_URL = "data:image/svg+xml;charset=utf-8," + quote(PASERU_ICON_SVG, safe="")
+PWA_ICON_URL = "https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png"
 
 
 # ---- PWA: 홈 화면에 앱처럼 추가할 수 있도록 매니페스트를 부모 문서에 주입(가능한 환경에서) ----
@@ -2471,7 +2472,7 @@ st.markdown(
     <div class="paseru-login-hero">
       <div class="paseru-login-kicker">소방 현장 노선 편성 자동화의 시작</div>
       <div class="paseru-brand-row">
-        <img class="paseru-mascot-icon" src="__PASERU_ICON_URL__" alt="파세루 캐릭터" onerror="this.onerror=null;this.src='__PASERU_ICON_URL__';">
+        <img class="paseru-mascot-icon" src="__PASERU_ICON_URL__" alt="파세루 캐릭터" onerror="this.onerror=null;this.src='__PASERU_ICON_FALLBACK_URL__';">
         <div class="paseru-brand-copy">
           <div class="paseru-login-title">FireSafe Route Origin</div>
           <div class="paseru-login-copy">
@@ -2501,7 +2502,8 @@ st.markdown(
         </div>
       </div>
     </div>
-    """.replace("__PASERU_ICON_URL__", PWA_ICON_URL),
+    """.replace("__PASERU_ICON_URL__", PWA_ICON_URL)
+        .replace("__PASERU_ICON_FALLBACK_URL__", PASERU_ICON_FALLBACK_URL),
     unsafe_allow_html=True,
 )
 
