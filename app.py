@@ -29,7 +29,11 @@ from streamlit_folium import st_folium
 # ----------------------------------------------------------------------------
 # 기본 설정
 # ----------------------------------------------------------------------------
-st.set_page_config(page_title="파세루 오리진", page_icon="🚒", layout="wide")
+st.set_page_config(
+    page_title="파세루 오리진",
+    page_icon="https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png",
+    layout="wide",
+)
 
 GEOLOCATION_COMPONENT_DIR = Path(__file__).parent / "geolocation_component"
 geolocation_component = components.declare_component(
@@ -2247,6 +2251,7 @@ PASERU_ICON_SVG = """
 """.strip()
 PASERU_ICON_FALLBACK_URL = "data:image/svg+xml;charset=utf-8," + quote(PASERU_ICON_SVG, safe="")
 PWA_ICON_URL = "https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/paseru-icon.png"
+PWA_MANIFEST_URL = "https://raw.githubusercontent.com/emtmisung/patrol-route-origin-app/main/assets/site.webmanifest"
 
 
 # ---- PWA: 홈 화면에 앱처럼 추가할 수 있도록 매니페스트를 부모 문서에 주입(가능한 환경에서) ----
@@ -2255,44 +2260,51 @@ components.html(
 <script>
 try {{
   const d = window.parent.document;
-  if (d && !d.getElementById('paseru-manifest')) {{
+  if (d) {{
     const iconUrl = "{PWA_ICON_URL}";
-    const manifest = {{
-      name: "파세루 오리진 - 순찰노선 설계기",
-      short_name: "파세루",
-      description: "AI 기반 소방 순찰노선 최적화 서비스",
-      start_url: ".", scope: ".", display: "standalone",
-      background_color: "#ffffff", theme_color: "#0b2f5f",
-      icons: [
-        {{ src: iconUrl, sizes: "192x192", type: "image/png", purpose: "any maskable" }},
-        {{ src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any maskable" }}
-      ]
-    }};
+    const manifestUrl = "{PWA_MANIFEST_URL}";
+    d.querySelectorAll('link[rel~="manifest"], link[rel~="icon"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]').forEach((el) => el.remove());
+
     const link = d.createElement('link');
     link.id = 'paseru-manifest';
     link.rel = 'manifest';
-    link.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
-    d.head.appendChild(link);
+    link.href = manifestUrl;
+    d.head.prepend(link);
 
     const favicon = d.createElement('link');
     favicon.id = 'paseru-favicon';
     favicon.rel = 'icon';
     favicon.type = 'image/png';
+    favicon.sizes = '512x512';
     favicon.href = iconUrl;
-    d.head.appendChild(favicon);
+    d.head.prepend(favicon);
+
+    const shortcutIcon = d.createElement('link');
+    shortcutIcon.id = 'paseru-shortcut-icon';
+    shortcutIcon.rel = 'shortcut icon';
+    shortcutIcon.type = 'image/png';
+    shortcutIcon.href = iconUrl;
+    d.head.prepend(shortcutIcon);
 
     const appleIcon = d.createElement('link');
     appleIcon.id = 'paseru-apple-touch-icon';
     appleIcon.rel = 'apple-touch-icon';
+    appleIcon.sizes = '512x512';
     appleIcon.href = iconUrl;
-    d.head.appendChild(appleIcon);
+    d.head.prepend(appleIcon);
 
-    const meta = d.createElement('meta');
-    meta.name = 'apple-mobile-web-app-capable'; meta.content = 'yes';
-    d.head.appendChild(meta);
-    const theme = d.createElement('meta');
-    theme.name = 'theme-color'; theme.content = '#0b2f5f';
-    d.head.appendChild(theme);
+    if (!d.querySelector('meta[name="apple-mobile-web-app-capable"]')) {{
+      const meta = d.createElement('meta');
+      meta.name = 'apple-mobile-web-app-capable'; meta.content = 'yes';
+      d.head.appendChild(meta);
+    }}
+    let theme = d.querySelector('meta[name="theme-color"]');
+    if (!theme) {{
+      theme = d.createElement('meta');
+      theme.name = 'theme-color';
+      d.head.appendChild(theme);
+    }}
+    theme.content = '#0b2f5f';
   }}
 }} catch (e) {{ /* 환경상 주입이 막히면 조용히 무시 */ }}
 </script>
