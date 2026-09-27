@@ -4000,6 +4000,7 @@ with page_details:
     # ----------------------------------------------------------------------------
     PURPOSE_OPTIONS = [
         "① 지휘관 현장방문", "② 특별경계근무용", "③ 계절순찰", "④ 예방검사", "⑤ 지리조사(센터용)",
+        "⑥ 소화전 현장길안내",
     ]
     PURPOSE_HINT = {
         "① 지휘관 현장방문": "방문 지휘관 수를 기준으로 전체 대상을 권역별로 자동 분할하고 구역별 이동거리와 소요시간을 계산합니다.",
@@ -4007,6 +4008,7 @@ with page_details:
         "③ 계절순찰": "정해진 기간 동안 수행자·차량·편도 제한·1회 최대시간을 반영해 반복형 또는 전 대상 순환형 노선을 만듭니다.",
         "④ 예방검사": "숙박업소 등 점검 순찰.",
         "⑤ 지리조사(센터용)": "소화전 등 팀별 순회 — 팀 수·목표시간 기준으로 노선수를 자동 산출합니다.",
+        "⑥ 소화전 현장길안내": "화재 현장주소와 소화전 주소 1건을 직접 입력해 카카오맵 길안내를 바로 엽니다.",
     }
 
     with st.container(border=True):
@@ -4028,6 +4030,7 @@ with page_details:
             "① 지휘관 현장방문": "other", "② 특별경계근무용": "guard",
             "③ 계절순찰": "season", "④ 예방검사": "inspect",
             "⑤ 지리조사(센터용)": "hydrant",
+            "⑥ 소화전 현장길안내": "hydrant_direct",
         }.get(purpose_label, "other")
 
         guard_repeat_label = None
@@ -4051,6 +4054,117 @@ with page_details:
         commander_route_count = 1
         commander_oneway_limit = 20
         commander_stop_min = 30
+
+        if purpose == "hydrant_direct":
+            st.info("엑셀 업로드 없이 현장주소와 소화전 주소 1건만 입력해 카카오맵 길안내를 바로 만듭니다.")
+            with st.container(border=True):
+                card_title(2, "소화전 현장길안내")
+                direct_col1, direct_col2 = st.columns(2)
+                with direct_col1:
+                    fire_scene_address = st.text_input(
+                        "현장주소(출발지)",
+                        placeholder="예: 경북 성주군 ○○읍 ○○로 00",
+                        key="hydrant_direct_scene_address",
+                        help="화재 현장 또는 안내를 시작할 위치의 주소를 입력하세요.",
+                    )
+                with direct_col2:
+                    hydrant_address = st.text_input(
+                        "소화전 주소(목적지)",
+                        placeholder="예: 경북 성주군 ○○읍 ○○리 000",
+                        key="hydrant_direct_target_address",
+                        help="이미 파악한 소화전 1개의 주소를 입력하세요.",
+                    )
+                hydrant_direct_name = st.text_input(
+                    "소화전 표시명",
+                    value=st.session_state.get("hydrant_direct_name", "소화전"),
+                    key="hydrant_direct_name",
+                    help="카카오맵 목적지 이름으로 표시됩니다.",
+                )
+
+                search_disabled = not (fire_scene_address.strip() and hydrant_address.strip())
+                if st.button(
+                    "🔎 주소 검색 후 카카오맵 길안내 만들기",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=search_disabled,
+                    key="build_hydrant_direct_route",
+                ):
+                    scene_lat, scene_lng, scene_status = geocode_once(fire_scene_address.strip())
+                    hydrant_lat, hydrant_lng, hydrant_status = geocode_once(hydrant_address.strip())
+                    if scene_status == "ok" and hydrant_status == "ok":
+                        origin = {
+                            "name": "화재 현장",
+                            "address": fire_scene_address.strip(),
+                            "lat": scene_lat,
+                            "lng": scene_lng,
+                        }
+                        destination = {
+                            "name": hydrant_direct_name.strip() or "소화전",
+                            "address": hydrant_address.strip(),
+                            "lat": hydrant_lat,
+                            "lng": hydrant_lng,
+                        }
+                        st.session_state["hydrant_direct_result"] = {
+                            "origin": origin,
+                            "destination": destination,
+                            "url": kakao_route_url(origin, [destination]),
+                        }
+                    else:
+                        st.session_state["hydrant_direct_result"] = {
+                            "error": {
+                                "scene_status": scene_status,
+                                "hydrant_status": hydrant_status,
+                            }
+                        }
+
+                direct_result = st.session_state.get("hydrant_direct_result")
+                if isinstance(direct_result, dict) and direct_result.get("error"):
+                    error_info = direct_result["error"]
+                    st.error(
+                        "주소 좌표를 찾지 못했습니다. 현장주소와 소화전 주소를 도로명 또는 지번까지 조금 더 정확히 입력해 주세요."
+                    )
+                    st.caption(
+                        f"현장주소 검색결과: {error_info.get('scene_status')} · "
+                        f"소화전주소 검색결과: {error_info.get('hydrant_status')}"
+                    )
+                elif isinstance(direct_result, dict) and direct_result.get("url"):
+                    origin = direct_result["origin"]
+                    destination = direct_result["destination"]
+                    guide_url = direct_result["url"]
+                    st.success("카카오맵 길안내가 준비되었습니다.")
+                    info_a, info_b = st.columns(2)
+                    with info_a:
+                        st.caption("출발지")
+                        st.write(f"**{origin['name']}**")
+                        st.caption(origin["address"])
+                    with info_b:
+                        st.caption("목적지")
+                        st.write(f"**{destination['name']}**")
+                        st.caption(destination["address"])
+
+                    st.link_button(
+                        "🚗 카카오맵으로 소화전 길안내 열기",
+                        guide_url,
+                        type="primary",
+                        use_container_width=True,
+                    )
+                    qr_png = make_qr_png(guide_url)
+                    qr_box = (st.popover("📱 QR코드 보기", use_container_width=True)
+                              if hasattr(st, "popover")
+                              else st.expander("📱 QR코드 보기"))
+                    with qr_box:
+                        st.image(qr_png, caption="휴대폰 카메라로 스캔하면 같은 길안내가 열립니다.", width=220)
+                        st.download_button(
+                            "QR코드 이미지 저장",
+                            data=qr_png,
+                            file_name="소화전_현장길안내_QR.png",
+                            mime="image/png",
+                            key="hydrant_direct_qr_download",
+                            use_container_width=True,
+                        )
+                    st.caption("※ 카카오맵 버튼은 현장주소를 출발지, 소화전 주소를 목적지로 넣은 자동차 길안내입니다.")
+
+            st.stop()
 
         if purpose == "guard":
             gc1, gc2 = st.columns([1.6, 1])
