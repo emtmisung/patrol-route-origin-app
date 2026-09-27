@@ -3049,26 +3049,29 @@ with page_basic:
                 origin_ready = False
                 st.info("먼저 상단의 출발부서 이름(주소)을 조회하거나 현 위치 조회로 출발지를 설정하세요.")
 
-            hydrant_address = st.text_input(
-                "소화전 주소(목적지)",
-                placeholder="예: 경북 성주군 ○○읍 ○○리 000",
-                key="hydrant_direct_target_address",
-                help="이미 파악한 소화전 1개의 주소를 입력하세요.",
-            )
-            number_col, suffix_col = st.columns([7, 1], gap="small")
-            with number_col:
-                hydrant_direct_no = st.text_input(
-                    "소화전 번호",
-                    placeholder="예: 114",
-                    key="hydrant_direct_no",
-                    help="숫자만 입력하면 결과와 QR에는 '소화전 114호'처럼 표시됩니다.",
+            hydrant_address_col, hydrant_no_col = st.columns([2.15, 1], gap="small")
+            with hydrant_address_col:
+                hydrant_address = st.text_input(
+                    "소화전 주소(목적지)",
+                    placeholder="예: 경북 성주군 ○○읍 ○○리 000",
+                    key="hydrant_direct_target_address",
+                    help="이미 파악한 소화전 1개의 주소를 입력하세요.",
                 )
-            with suffix_col:
-                st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
-                st.markdown(
-                    "<div style='padding:.6rem 0;text-align:center;font-weight:800;color:#7f1d1d;'>호</div>",
-                    unsafe_allow_html=True,
-                )
+            with hydrant_no_col:
+                number_col, suffix_col = st.columns([5.5, 1], gap="small")
+                with number_col:
+                    hydrant_direct_no = st.text_input(
+                        "소화전 번호",
+                        placeholder="예: 114",
+                        key="hydrant_direct_no",
+                        help="숫자만 입력하면 결과와 QR에는 '소화전 114호'처럼 표시됩니다.",
+                    )
+                with suffix_col:
+                    st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
+                    st.markdown(
+                        "<div style='padding:.6rem 0;text-align:center;font-weight:800;color:#7f1d1d;'>호</div>",
+                        unsafe_allow_html=True,
+                    )
 
             search_disabled = not (origin_ready and hydrant_address.strip())
             if st.button(
