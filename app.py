@@ -3005,6 +3005,8 @@ with page_basic:
                 help="엑셀 없이 현장주소와 소화전 주소 1건을 바로 카카오맵으로 연결합니다.",
             ):
                 st.session_state["show_hydrant_direct_panel"] = True
+                st.session_state["load_sample_targets"] = False
+                st.session_state["sample_mode_active"] = False
         with action_col2:
             if st.button(
                 "🧪 기능확인용 예시 불러오기",
@@ -3014,16 +3016,14 @@ with page_basic:
             ):
                 st.session_state["load_sample_targets"] = True
                 st.session_state["sample_mode_active"] = True
+                st.session_state["show_hydrant_direct_panel"] = False
+                st.session_state.pop("hydrant_direct_result", None)
 
         use_sample = bool(st.session_state.get("load_sample_targets", False))
         if use_sample:
             st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
-        with st.expander(
-            "🚒 소화전 현장길안내 · 1건 바로 연결",
-            expanded=bool(st.session_state.get("show_hydrant_direct_panel", False)),
-        ):
-            st.caption("긴급 현장에서 엑셀 업로드 없이 현장주소와 소화전 주소 1건을 입력해 카카오맵 길안내를 만듭니다.")
+        if st.session_state.get("show_hydrant_direct_panel", False):
             origin_mode = st.pills(
                 "현장 출발지 설정",
                 ["현 위치 사용", "주소 직접입력"],
