@@ -3128,7 +3128,21 @@ with page_basic:
                 origin = direct_result["origin"]
                 destination = direct_result["destination"]
                 guide_url = direct_result["url"]
-                st.success("카카오맵 길안내가 준비되었습니다.")
+                route_km, route_min, route_path = road_route(
+                    origin["lat"], origin["lng"], destination["lat"], destination["lng"],
+                )
+                if route_km is None:
+                    route_km = haversine_km(
+                        (origin["lat"], origin["lng"]),
+                        (destination["lat"], destination["lng"]),
+                    ) * ROAD_FACTOR
+                    route_min = route_km / AVG_SPEED_KMH * 60
+                    route_path = [
+                        (origin["lat"], origin["lng"]),
+                        (destination["lat"], destination["lng"]),
+                    ]
+
+                st.success("소화전 현장길안내 결과가 준비되었습니다.")
                 info_a, info_b = st.columns(2)
                 with info_a:
                     st.caption("출발지")
@@ -3139,26 +3153,76 @@ with page_basic:
                     st.write(f"**{destination['name']}**")
                     st.caption(destination["address"])
 
+                with st.container(border=True):
+                    st.markdown("#### 🗺️ 소화전 현장길안내 지도")
+                    st.caption(
+                        f"{origin['name']} → {destination['name']} · "
+                        f"약 {route_km:.1f}km · {route_min:.0f}분"
+                    )
+                    center_lat = (origin["lat"] + destination["lat"]) / 2
+                    center_lng = (origin["lng"] + destination["lng"]) / 2
+                    hydrant_map = folium.Map(location=[center_lat, center_lng], zoom_start=14)
+                    folium.PolyLine(route_path, color="#a33a3f", weight=5, opacity=0.88).add_to(hydrant_map)
+                    folium.Marker(
+                        [origin["lat"], origin["lng"]],
+                        tooltip=f"출발: {origin['name']}",
+                        icon=folium.DivIcon(
+                            icon_size=(64, 28), icon_anchor=(32, 14),
+                            html=(
+                                '<div style="background:#1f6fb2;color:#ffffff;'
+                                'padding:4px 9px;border-radius:14px;border:2px solid #ffffff;'
+                                'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
+                                'font-family:sans-serif;font-weight:800;font-size:12px;'
+                                'line-height:1.2;white-space:nowrap;">출발</div>'
+                            ),
+                        ),
+                    ).add_to(hydrant_map)
+                    folium.Marker(
+                        [destination["lat"], destination["lng"]],
+                        tooltip=f"소화전: {destination['name']}",
+                        icon=folium.DivIcon(
+                            icon_size=(72, 28), icon_anchor=(36, 14),
+                            html=(
+                                '<div style="background:#b91c1c;color:#ffffff;'
+                                'padding:4px 9px;border-radius:14px;border:2px solid #ffffff;'
+                                'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
+                                'font-family:sans-serif;font-weight:800;font-size:12px;'
+                                'line-height:1.2;white-space:nowrap;">소화전</div>'
+                            ),
+                        ),
+                    ).add_to(hydrant_map)
+                    st_folium(hydrant_map, height=260, use_container_width=True, key="hydrant_direct_map")
+
+                st.markdown("**🟨 카카오맵 — 소화전 길안내와 QR코드**")
                 st.link_button(
                     "🚗 카카오맵으로 소화전 길안내 열기",
                     guide_url,
                     type="primary",
                     use_container_width=True,
                 )
+                route_sequence = f"{origin['name']} → {destination['name']}"
                 qr_png = make_qr_png(guide_url)
-                qr_box = (st.popover("📱 QR코드 보기", use_container_width=True)
+                qr_box = (st.popover("📱 QR코드 보기 · 소화전 현장길안내", use_container_width=True)
                           if hasattr(st, "popover")
-                          else st.expander("📱 QR코드 보기"))
+                          else st.expander("📱 QR코드 보기 · 소화전 현장길안내"))
                 with qr_box:
-                    st.image(qr_png, caption="휴대폰 카메라로 스캔하면 같은 길안내가 열립니다.", width=220)
+                    st.markdown("### 소화전 현장길안내")
+                    st.caption(
+                        f"{origin['name']}에서 {destination['name']}까지 "
+                        f"카카오맵 자동차 길안내 QR입니다."
+                    )
+                    st.image(qr_png, caption="휴대폰 카메라로 스캔하면 카카오맵 길안내가 열립니다.", width=220)
+                    st.markdown(f"**경로:** {route_sequence}")
+                    st.caption(f"출발지: {origin['address']}  \n목적지: {destination['address']}")
                     st.download_button(
-                        "QR코드 이미지 저장",
+                        "QR코드만 이미지 저장",
                         data=qr_png,
                         file_name="소화전_현장길안내_QR.png",
                         mime="image/png",
                         key="hydrant_direct_qr_download",
                         use_container_width=True,
                     )
+                st.caption(f"경로: {route_sequence}")
                 st.caption("※ 카카오맵 버튼은 현장주소 또는 현 위치를 출발지, 소화전 주소를 목적지로 넣은 자동차 길안내입니다.")
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
         selected_draft_key = None
