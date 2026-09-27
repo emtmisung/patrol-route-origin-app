@@ -1837,6 +1837,17 @@ def build_route_links_excel(station, route_results):
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
+    ws.append([
+        "안내", "", "",
+        "지도와 예상거리·시간은 입력한 출발지 기준입니다. 카카오맵 실행 후 실제 내비는 휴대폰 현재 위치 기준으로 다시 안내될 수 있습니다.",
+        "", "", "",
+    ])
+    for cell in ws[2]:
+        cell.fill = PatternFill("solid", fgColor="FFF2CC")
+        cell.font = Font(color="7C2D12", bold=True)
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
+        cell.border = bottom_border
+
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.border = bottom_border
@@ -1851,7 +1862,8 @@ def build_route_links_excel(station, route_results):
     for column, width in widths.items():
         ws.column_dimensions[column].width = width
     ws.row_dimensions[1].height = 26
-    for row_no in range(2, ws.max_row + 1):
+    ws.row_dimensions[2].height = 42
+    for row_no in range(3, ws.max_row + 1):
         ws.row_dimensions[row_no].height = 42
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
@@ -1949,7 +1961,9 @@ def build_printable_qr_html(station, route_results, meta):
                 f'<section class="qr-block"><h2>노선 {rr["route_no"]}{suffix}</h2>'
                 f'<img src="data:image/png;base64,{qr_b64}" alt="노선 QR코드">'
                 f'<p class="scan">휴대폰 카메라로 스캔하면 이 구간의 카카오맵 코스가 열립니다.</p>'
-                f'<p class="sequence">{html.escape(seq)}</p></section>'
+                f'<p class="sequence">{html.escape(seq)}</p>'
+                f'<p class="note">지도와 예상거리·시간은 입력한 출발지 기준입니다. '
+                f'카카오맵 실행 후 실제 내비는 휴대폰 현재 위치 기준으로 다시 안내될 수 있습니다.</p></section>'
             )
         people = ""
         if team_name or team_members:
@@ -1981,6 +1995,8 @@ header span, .people {{ font-size: 14px; color: #4b5563; }}
 .scan {{ font-size: 14px; font-weight: 700; margin: 4px 0 12px; }}
 .sequence {{ font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; border-top: 1px solid #d1d5db;
   padding-top: 12px; margin: 0 auto; max-width: 170mm; }}
+.note {{ max-width: 170mm; margin: 10px auto 0; padding: 8px 10px; border-radius: 8px;
+  background: #fff7ed; color: #7c2d12; font-size: 13px; line-height: 1.55; font-weight: 700; }}
 .period {{ text-align: center; color: #4b5563; margin: 0 0 8px; }}
 @media print {{ .print-button {{ display: none; }} }}
 </style></head><body>
@@ -5875,6 +5891,10 @@ with page_build:
                                           else st.expander(f"📱 QR코드 보기{suffix}"))
                                 with qr_box:
                                     st.image(qr_png, caption="휴대폰 카메라로 스캔하세요.", width=220)
+                                    st.warning(
+                                        "지도와 예상거리·시간은 입력한 출발지 기준입니다. "
+                                        "카카오맵 실행 후 실제 내비는 휴대폰 현재 위치 기준으로 다시 안내될 수 있습니다."
+                                    )
                                     st.download_button(
                                         "QR코드 이미지 저장",
                                         data=qr_png,
