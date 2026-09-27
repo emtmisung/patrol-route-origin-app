@@ -2990,23 +2990,77 @@ with page_basic:
 
         route_prefix = station_name
 
-        with st.expander("🚒 소화전 현장길안내 · 1건 바로 연결", expanded=False):
-            st.caption("엑셀 업로드 없이 화재 현장주소와 소화전 주소 1건을 직접 입력해 카카오맵 길안내를 바로 만듭니다.")
-            direct_col1, direct_col2 = st.columns(2)
-            with direct_col1:
+        restored_df = st.session_state.get("browser_restored_df")
+
+        if "load_sample_targets" not in st.session_state:
+            st.session_state["load_sample_targets"] = (restored_df is None)
+
+        st.markdown("**대상 목록 업로드**")
+        action_col1, action_col2 = st.columns(2, gap="small")
+        with action_col1:
+            if st.button(
+                "🚒 소화전 현장안내",
+                key="open_hydrant_direct_panel",
+                use_container_width=True,
+                help="엑셀 없이 현장주소와 소화전 주소 1건을 바로 카카오맵으로 연결합니다.",
+            ):
+                st.session_state["show_hydrant_direct_panel"] = True
+        with action_col2:
+            if st.button(
+                "🧪 기능확인용 예시 불러오기",
+                key="load_sample_targets_button",
+                use_container_width=True,
+                help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
+            ):
+                st.session_state["load_sample_targets"] = True
+                st.session_state["sample_mode_active"] = True
+
+        use_sample = bool(st.session_state.get("load_sample_targets", False))
+        if use_sample:
+            st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
+
+        with st.expander(
+            "🚒 소화전 현장길안내 · 1건 바로 연결",
+            expanded=bool(st.session_state.get("show_hydrant_direct_panel", False)),
+        ):
+            st.caption("긴급 현장에서 엑셀 업로드 없이 현장주소와 소화전 주소 1건을 입력해 카카오맵 길안내를 만듭니다.")
+            origin_mode = st.pills(
+                "현장 출발지 설정",
+                ["현 위치 사용", "주소 직접입력"],
+                default="현 위치 사용",
+                key="hydrant_direct_origin_mode",
+                help="휴대폰 현장에서는 현 위치를 쓰고, PC나 사전 준비 중에는 주소 직접입력을 사용하세요.",
+            ) or "현 위치 사용"
+
+            if origin_mode == "주소 직접입력":
                 fire_scene_address = st.text_input(
                     "현장주소(출발지)",
                     placeholder="예: 경북 성주군 ○○읍 ○○로 00",
                     key="hydrant_direct_scene_address",
                     help="화재 현장 또는 안내를 시작할 위치의 주소를 입력하세요.",
                 )
-            with direct_col2:
-                hydrant_address = st.text_input(
-                    "소화전 주소(목적지)",
-                    placeholder="예: 경북 성주군 ○○읍 ○○리 000",
-                    key="hydrant_direct_target_address",
-                    help="이미 파악한 소화전 1개의 주소를 입력하세요.",
-                )
+                origin_ready = bool(fire_scene_address.strip())
+                origin_preview = fire_scene_address.strip()
+            else:
+                current_origin = None
+                current_location_result = st.session_state.get("station_search_result")
+                if isinstance(current_location_result, dict) and current_location_result.get("name") == "현 위치":
+                    current_origin = current_location_result
+                if current_origin:
+                    origin_ready = True
+                    origin_preview = current_origin.get("address", "휴대폰 GPS 현재 위치")
+                    st.success(f"현 위치가 출발지로 설정되었습니다: {origin_preview}")
+                else:
+                    origin_ready = False
+                    origin_preview = ""
+                    st.info("상단의 ‘현 위치 설정(야외용)’에서 위치 권한을 허용하면 현재 위치를 출발지로 사용할 수 있습니다.")
+
+            hydrant_address = st.text_input(
+                "소화전 주소(목적지)",
+                placeholder="예: 경북 성주군 ○○읍 ○○리 000",
+                key="hydrant_direct_target_address",
+                help="이미 파악한 소화전 1개의 주소를 입력하세요.",
+            )
             hydrant_direct_name = st.text_input(
                 "소화전 표시명",
                 value=st.session_state.get("hydrant_direct_name", "소화전"),
@@ -3014,7 +3068,7 @@ with page_basic:
                 help="카카오맵 목적지 이름으로 표시됩니다.",
             )
 
-            search_disabled = not (fire_scene_address.strip() and hydrant_address.strip())
+            search_disabled = not (origin_ready and hydrant_address.strip())
             if st.button(
                 "🔎 주소 검색 후 카카오맵 길안내 만들기",
                 type="primary",
@@ -3022,12 +3076,22 @@ with page_basic:
                 disabled=search_disabled,
                 key="build_hydrant_direct_route",
             ):
-                scene_lat, scene_lng, scene_status = geocode_once(fire_scene_address.strip())
+                if origin_mode == "주소 직접입력":
+                    scene_lat, scene_lng, scene_status = geocode_once(fire_scene_address.strip())
+                    origin_address = fire_scene_address.strip()
+                    origin_name = "화재 현장"
+                else:
+                    scene_lat = float(current_origin["lat"])
+                    scene_lng = float(current_origin["lng"])
+                    scene_status = "ok"
+                    origin_address = current_origin.get("address", "휴대폰 GPS 현재 위치")
+                    origin_name = "현 위치"
+
                 hydrant_lat, hydrant_lng, hydrant_status = geocode_once(hydrant_address.strip())
                 if scene_status == "ok" and hydrant_status == "ok":
                     origin = {
-                        "name": "화재 현장",
-                        "address": fire_scene_address.strip(),
+                        "name": origin_name,
+                        "address": origin_address,
                         "lat": scene_lat,
                         "lng": scene_lng,
                     }
@@ -3093,20 +3157,7 @@ with page_basic:
                         key="hydrant_direct_qr_download",
                         use_container_width=True,
                     )
-                st.caption("※ 카카오맵 버튼은 현장주소를 출발지, 소화전 주소를 목적지로 넣은 자동차 길안내입니다.")
-
-        restored_df = st.session_state.get("browser_restored_df")
-
-        use_sample = st.checkbox(
-            "🧪 기능 확인용 예시 18건 불러오기 (성주군 주요 대상)",
-            value=(restored_df is None),
-            help="평가관이 별도 엑셀 파일 없이 바로 확인할 수 있도록 오류 1건만 남긴 평가용 목록을 불러옵니다.",
-            key="load_sample_targets",
-        )
-        if use_sample:
-            st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
-
-        st.markdown("**대상 목록 업로드**")
+                st.caption("※ 카카오맵 버튼은 현장주소 또는 현 위치를 출발지, 소화전 주소를 목적지로 넣은 자동차 길안내입니다.")
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
         selected_draft_key = None
         if saved_drafts:
@@ -3152,6 +3203,30 @@ with page_basic:
               }
               [class*="st-key-target_file_upload_"] [data-testid="stFileUploaderDropzone"] button::after {
                 content:"📤 대상 목록 업로드"; font-size:0.96rem!important; color:#fff!important;
+              }
+              .st-key-open_hydrant_direct_panel button,
+              .st-key-load_sample_targets_button button {
+                height:4.5rem!important; min-height:4.5rem!important; padding:0!important;
+                border-radius:10px!important; font-size:1.02rem!important; font-weight:900!important;
+                box-shadow:0 8px 18px rgba(15, 23, 42, 0.12)!important;
+              }
+              .st-key-open_hydrant_direct_panel button {
+                border:2px solid #b91c1c!important;
+                background:#fee2e2!important;
+                color:#7f1d1d!important;
+                -webkit-text-fill-color:#7f1d1d!important;
+              }
+              .st-key-open_hydrant_direct_panel button:hover {
+                border-color:#991b1b!important; background:#fecaca!important;
+              }
+              .st-key-load_sample_targets_button button {
+                border:2px solid #f59e0b!important;
+                background:#fff7ed!important;
+                color:#9a3412!important;
+                -webkit-text-fill-color:#9a3412!important;
+              }
+              .st-key-load_sample_targets_button button:hover {
+                border-color:#d97706!important; background:#ffedd5!important;
               }
               .st-key-download_blank_target_template button {
                 height:4.5rem!important; min-height:4.5rem!important; padding:0!important;
