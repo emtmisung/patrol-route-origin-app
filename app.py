@@ -3194,7 +3194,7 @@ with page_basic:
                     ).add_to(hydrant_map)
                     st_folium(hydrant_map, height=260, use_container_width=True, key="hydrant_direct_map")
 
-                st.markdown("**🟨 카카오맵 — 소화전 길안내와 QR코드**")
+                st.markdown("**🟨 카카오맵 — 길안내 및 공유용 QR**")
                 st.link_button(
                     "🚗 카카오맵으로 소화전 길안내 열기",
                     guide_url,
@@ -3203,14 +3203,14 @@ with page_basic:
                 )
                 route_sequence = f"{origin['name']} → {destination['name']}"
                 qr_png = make_qr_png(guide_url)
-                qr_box = (st.popover("📱 QR코드 보기 · 소화전 현장길안내", use_container_width=True)
+                qr_box = (st.popover("📱 동료 공유용 QR 열기", use_container_width=True)
                           if hasattr(st, "popover")
-                          else st.expander("📱 QR코드 보기 · 소화전 현장길안내"))
+                          else st.expander("📱 동료 공유용 QR 열기"))
                 with qr_box:
                     st.markdown("### 소화전 현장길안내")
                     st.caption(
-                        f"입력한 출발지 기준으로 {destination['name']}까지 연결하는 "
-                        f"카카오맵 자동차 길안내 QR입니다."
+                        f"이 화면을 캡처해 현장 단톡방에 공유하거나, "
+                        f"아래 버튼으로 QR 이미지만 저장해 인쇄물에 넣을 수 있습니다."
                     )
                     st.image(qr_png, caption="휴대폰 카메라로 스캔하면 카카오맵 길안내가 열립니다.", width=220)
                     st.markdown(f"**경로:** {route_sequence}")
@@ -3221,7 +3221,7 @@ with page_basic:
                         "출발하여 소요시간이 달라질 수 있습니다."
                     )
                     st.download_button(
-                        "QR코드만 이미지 저장",
+                        "QR 이미지 파일 다운로드",
                         data=qr_png,
                         file_name="소화전_현장길안내_QR.png",
                         mime="image/png",
