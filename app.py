@@ -3208,12 +3208,17 @@ with page_basic:
                 with qr_box:
                     st.markdown("### 소화전 현장길안내")
                     st.caption(
-                        f"{origin['name']}에서 {destination['name']}까지 "
+                        f"입력한 출발지 기준으로 {destination['name']}까지 연결하는 "
                         f"카카오맵 자동차 길안내 QR입니다."
                     )
                     st.image(qr_png, caption="휴대폰 카메라로 스캔하면 카카오맵 길안내가 열립니다.", width=220)
                     st.markdown(f"**경로:** {route_sequence}")
-                    st.caption(f"출발지: {origin['address']}  \n목적지: {destination['address']}")
+                    st.caption(
+                        f"계획 기준 출발지: {origin['address']}  \n"
+                        f"목적지: {destination['address']}  \n"
+                        "※ 카카오맵 실행 후 실제 내비는 휴대폰 현재 위치를 기준으로 "
+                        "출발하여 소요시간이 달라질 수 있습니다."
+                    )
                     st.download_button(
                         "QR코드만 이미지 저장",
                         data=qr_png,
@@ -3223,7 +3228,10 @@ with page_basic:
                         use_container_width=True,
                     )
                 st.caption(f"경로: {route_sequence}")
-                st.caption("※ 카카오맵 버튼은 현장주소 또는 현 위치를 출발지, 소화전 주소를 목적지로 넣은 자동차 길안내입니다.")
+                st.caption(
+                    "※ 지도와 예상거리는 입력한 출발지 기준입니다. 카카오맵 실행 후 실제 내비는 "
+                    "사용자의 현재 위치 기준으로 다시 안내될 수 있습니다."
+                )
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
         selected_draft_key = None
         if saved_drafts:
