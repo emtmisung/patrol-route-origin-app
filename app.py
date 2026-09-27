@@ -2916,10 +2916,10 @@ with page_basic:
             station_input_col, station_search_col = st.columns([3, 1])
             with station_input_col:
                 station_query = st.text_input(
-                    "출발부서 이름",
+                    "출발부서 이름(주소)",
                     value=st.session_state.get("station_query", "성주소방서"),
-                    placeholder="예: 선남119안전센터",
-                    help="소방서·119안전센터·구조구급센터 등 출발할 부서명을 입력하세요.",
+                    placeholder="예: 선남119안전센터 또는 경북 성주군 ○○로 00",
+                    help="소방서·119안전센터·구조구급센터 등 출발할 부서명이나 주소를 입력하세요.",
                 )
             with station_search_col:
                 st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
@@ -3042,36 +3042,12 @@ with page_basic:
             st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
         if st.session_state.get("show_hydrant_direct_panel", False):
-            origin_mode = st.pills(
-                "현장 출발지 설정",
-                ["현 위치 사용", "주소 직접입력"],
-                default="현 위치 사용",
-                key="hydrant_direct_origin_mode",
-                help="휴대폰 현장에서는 현 위치를 쓰고, PC나 사전 준비 중에는 주소 직접입력을 사용하세요.",
-            ) or "현 위치 사용"
-
-            if origin_mode == "주소 직접입력":
-                fire_scene_address = st.text_input(
-                    "현장주소(출발지)",
-                    placeholder="예: 경북 성주군 ○○읍 ○○로 00",
-                    key="hydrant_direct_scene_address",
-                    help="화재 현장 또는 안내를 시작할 위치의 주소를 입력하세요.",
-                )
-                origin_ready = bool(fire_scene_address.strip())
-                origin_preview = fire_scene_address.strip()
+            if station_lat is not None and station_lng is not None:
+                origin_ready = True
+                st.success(f"출발지: {station_name} · {station_address}")
             else:
-                current_origin = None
-                current_location_result = st.session_state.get("station_search_result")
-                if isinstance(current_location_result, dict) and current_location_result.get("name") == "현 위치":
-                    current_origin = current_location_result
-                if current_origin:
-                    origin_ready = True
-                    origin_preview = current_origin.get("address", "휴대폰 GPS 현재 위치")
-                    st.success(f"현 위치가 출발지로 설정되었습니다: {origin_preview}")
-                else:
-                    origin_ready = False
-                    origin_preview = ""
-                    st.info("상단의 ‘현 위치 설정(야외용)’에서 위치 권한을 허용하면 현재 위치를 출발지로 사용할 수 있습니다.")
+                origin_ready = False
+                st.info("먼저 상단의 출발부서 이름(주소)을 조회하거나 현 위치 조회로 출발지를 설정하세요.")
 
             hydrant_address = st.text_input(
                 "소화전 주소(목적지)",
@@ -3079,12 +3055,20 @@ with page_basic:
                 key="hydrant_direct_target_address",
                 help="이미 파악한 소화전 1개의 주소를 입력하세요.",
             )
-            hydrant_direct_name = st.text_input(
-                "소화전 표시명",
-                value=st.session_state.get("hydrant_direct_name", "소화전"),
-                key="hydrant_direct_name",
-                help="카카오맵 목적지 이름으로 표시됩니다.",
-            )
+            number_col, suffix_col = st.columns([7, 1], gap="small")
+            with number_col:
+                hydrant_direct_no = st.text_input(
+                    "소화전 번호",
+                    placeholder="예: 114",
+                    key="hydrant_direct_no",
+                    help="숫자만 입력하면 결과와 QR에는 '소화전 114호'처럼 표시됩니다.",
+                )
+            with suffix_col:
+                st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
+                st.markdown(
+                    "<div style='padding:.6rem 0;text-align:center;font-weight:800;color:#7f1d1d;'>호</div>",
+                    unsafe_allow_html=True,
+                )
 
             search_disabled = not (origin_ready and hydrant_address.strip())
             if st.button(
@@ -3094,19 +3078,17 @@ with page_basic:
                 disabled=search_disabled,
                 key="build_hydrant_direct_route",
             ):
-                if origin_mode == "주소 직접입력":
-                    scene_lat, scene_lng, scene_status = geocode_once(fire_scene_address.strip())
-                    origin_address = fire_scene_address.strip()
-                    origin_name = "화재 현장"
-                else:
-                    scene_lat = float(current_origin["lat"])
-                    scene_lng = float(current_origin["lng"])
-                    scene_status = "ok"
-                    origin_address = current_origin.get("address", "휴대폰 GPS 현재 위치")
-                    origin_name = "현 위치"
+                scene_lat = float(station_lat)
+                scene_lng = float(station_lng)
+                scene_status = "ok"
+                origin_address = station_address
+                origin_name = station_name or "출발지"
 
                 hydrant_lat, hydrant_lng, hydrant_status = geocode_once(hydrant_address.strip())
                 if scene_status == "ok" and hydrant_status == "ok":
+                    hydrant_no = re.sub(r"^(소화전\s*)?", "", hydrant_direct_no.strip())
+                    hydrant_no = re.sub(r"\s*호$", "", hydrant_no).strip()
+                    hydrant_display_name = f"소화전 {hydrant_no}호" if hydrant_no else "소화전"
                     origin = {
                         "name": origin_name,
                         "address": origin_address,
@@ -3114,7 +3096,7 @@ with page_basic:
                         "lng": scene_lng,
                     }
                     destination = {
-                        "name": hydrant_direct_name.strip() or "소화전",
+                        "name": hydrant_display_name,
                         "address": hydrant_address.strip(),
                         "lat": hydrant_lat,
                         "lng": hydrant_lng,
