@@ -1,4 +1,4 @@
-streamlit>=1.38
+streamlit==1.64.0
 pandas>=2.0
 requests>=2.31
 folium>=0.16

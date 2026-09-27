@@ -1,0 +1,14 @@
+# 비밀값 — 절대 GitHub에 올리지 않음
+.streamlit/secrets.toml
+secrets.toml
+
+# 파이썬 실행 부산물
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 개발 도구·테스트 부산물
+.pytest_cache/
+.DS_Store
+Thumbs.db
