@@ -486,6 +486,10 @@ def render(ctx):
                 box-shadow:0 10px 24px rgba(153,27,27,.28)!important;
                 font-size:0!important;
                 overflow:hidden!important;
+                display:flex!important;
+                flex-direction:column!important;
+                align-items:center!important;
+                justify-content:center!important;
               }
               .st-key-open_hydrant_direct_panel button > * {
                 display:none!important;
@@ -499,8 +503,11 @@ def render(ctx):
                 font-weight:950!important;
                 line-height:1.25!important;
                 text-align:center!important;
-                white-space:nowrap!important;
-                padding:0 .18rem!important;
+                white-space:normal!important;
+                overflow-wrap:keep-all!important;
+                word-break:keep-all!important;
+                max-width:100%!important;
+                padding:0 .3rem!important;
               }
               .st-key-open_hydrant_direct_panel button::after {
                 content:"소화전·집결지를 카카오내비 QR로 공유";
@@ -511,8 +518,11 @@ def render(ctx):
                 font-weight:800!important;
                 line-height:1.28!important;
                 text-align:center!important;
-                white-space:nowrap!important;
-                padding:.12rem .18rem 0!important;
+                white-space:normal!important;
+                overflow-wrap:keep-all!important;
+                word-break:keep-all!important;
+                max-width:100%!important;
+                padding:.12rem .3rem 0!important;
               }
               .st-key-open_hydrant_direct_panel button:hover {
                 border-color:#7f1d1d!important; background:linear-gradient(135deg,#ef4444 0%,#991b1b 100%)!important;
