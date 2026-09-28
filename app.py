@@ -10,6 +10,7 @@ import streamlit as st
 from PIL import Image
 
 from paseru import startup, step1_basic, step2_method, step3_build
+from paseru.admin import maybe_render_admin_panel
 from paseru.settings import ROOT_DIR
 from paseru.styles import PASERU_CSS
 from paseru.ui import (
@@ -35,6 +36,7 @@ st.set_page_config(
 )
 
 st.markdown(PASERU_CSS, unsafe_allow_html=True)
+maybe_render_admin_panel()   # ?admin=1 이면 여기서 관리자 화면만 보여주고 멈춘다(st.stop)
 inject_social_preview_meta()
 inject_pwa_links()
 render_login_hero()

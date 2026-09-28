@@ -7,3 +7,5 @@ streamlit-local-storage==0.0.25
 openpyxl>=3.1
 qrcode[pil]>=7.4
 cryptography>=42
+gspread>=6.0
+google-auth>=2.30
