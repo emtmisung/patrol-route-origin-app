@@ -170,20 +170,27 @@ def render(ctx):
             st.session_state["load_sample_targets"] = (restored_df is None)
 
         emergency_mode = bool(st.session_state.get("show_hydrant_direct_panel", False))
+        # 사용자가 '예시 불러오기'를 직접 눌렀을 때만 True — 기본값으로 예시가 쓰이는 것과는 구분한다.
+        sample_explicitly_loaded = bool(st.session_state.get("sample_explicitly_loaded", False))
         if not emergency_mode:
             st.markdown("**대상 목록 업로드**")
-            action_col1, action_col2 = st.columns(2, gap="small")
-            with action_col1:
-                if st.button(
-                    "🚨 긴급 노선안내",
-                    key="open_hydrant_direct_panel",
-                    use_container_width=True,
-                    help="목적지 1곳을 QR코드로 빠르게 공유합니다.",
-                ):
-                    st.session_state["show_hydrant_direct_panel"] = True
-                    st.session_state["load_sample_targets"] = False
-                    st.session_state["sample_mode_active"] = False
-                    st.rerun()
+            if sample_explicitly_loaded:
+                # 예시 데이터를 쓰는 동안은 긴급 노선안내 버튼을 숨긴다(예시 대상과 헷갈리지 않도록).
+                action_col2 = st.container()
+            else:
+                action_col1, action_col2 = st.columns(2, gap="small")
+                with action_col1:
+                    if st.button(
+                        "🚨 긴급 노선안내",
+                        key="open_hydrant_direct_panel",
+                        use_container_width=True,
+                        help="목적지 1곳을 QR코드로 빠르게 공유합니다.",
+                    ):
+                        st.session_state["show_hydrant_direct_panel"] = True
+                        st.session_state["load_sample_targets"] = False
+                        st.session_state["sample_mode_active"] = False
+                        st.session_state["sample_explicitly_loaded"] = False
+                        st.rerun()
             with action_col2:
                 if st.button(
                     "🧪 기능확인용 예시 불러오기",
@@ -193,6 +200,7 @@ def render(ctx):
                 ):
                     st.session_state["load_sample_targets"] = True
                     st.session_state["sample_mode_active"] = True
+                    st.session_state["sample_explicitly_loaded"] = True
                     st.session_state["show_hydrant_direct_panel"] = False
                     st.session_state.pop("hydrant_direct_result", None)
 
@@ -720,6 +728,7 @@ def render(ctx):
         if df is not None:
             st.session_state["browser_restored_df"] = df.copy()
             st.session_state["browser_draft_saving_enabled"] = True
+            st.session_state["sample_explicitly_loaded"] = False
             upload_signature = hashlib.sha256(
                 uploaded.name.encode("utf-8") + b"\0" + uploaded_bytes,
             ).hexdigest()

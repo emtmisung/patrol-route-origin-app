@@ -170,10 +170,27 @@ def main():
     fail_check(at, "login", out)
     out.append("=== AFTER LOGIN ===")
     out += snapshot(at)
+
+    # 긴급 노선안내(예시 데이터를 불러오기 전, 즉 버튼이 보이는 상태에서 확인)
+    at.button(key="search_departure_department_btn").click().run()
+    at.button(key="open_hydrant_direct_panel").click().run()
+    at.text_input(key="hydrant_direct_target_address").input("경상북도 성주군 성주읍 경산리 100").run()
+    at.text_input(key="hydrant_direct_no").input("114").run()
+    at.button(key="build_hydrant_direct_route").click().run()
+    fail_check(at, "hydrant", out)
+    out.append("=== HYDRANT DIRECT ===")
+    out += snapshot(at)
+    # 긴급 노선안내 화면에서 나가기 -> 버튼이 다시 보여야 정상
+    at.button(key="close_hydrant_direct_panel").click().run()
+    if not any(b.key == "open_hydrant_direct_panel" for b in at.button):
+        out.append("!! 긴급 노선안내 화면을 닫았는데도 버튼이 다시 나타나지 않음")
+
     prepare_targets(at)
     fail_check(at, "coords", out)
     out.append("=== AFTER COORDS ===")
     out += snapshot(at)
+    if any(b.key == "open_hydrant_direct_panel" for b in at.button):
+        out.append("!! 예시 데이터를 불러온 뒤에도 긴급 노선안내 버튼이 숨겨지지 않음")
     if FAIL_ONE:
         with open(OUT, "w") as f:
             f.write("\n".join(out))
@@ -183,18 +200,6 @@ def main():
         for e in errors:
             print(e)
         sys.exit(1 if errors or not shown else 0)
-
-    # 소화전 현장안내
-    at.button(key="open_hydrant_direct_panel").click().run()
-    at.text_input(key="hydrant_direct_target_address").input("경상북도 성주군 성주읍 경산리 100").run()
-    at.text_input(key="hydrant_direct_no").input("114").run()
-    at.button(key="build_hydrant_direct_route").click().run()
-    fail_check(at, "hydrant", out)
-    out.append("=== HYDRANT DIRECT ===")
-    out += snapshot(at)
-    # 긴급 노선안내 화면에서 나가고 다시 예시로
-    at.button(key="close_hydrant_direct_panel").click().run()
-    at.button(key="load_sample_targets_button").click().run()
     for _ in range(40):
         if any(b.label == "🔄 대상 좌표 다시 검색" for b in at.button):
             break
