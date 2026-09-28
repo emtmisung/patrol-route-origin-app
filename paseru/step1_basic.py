@@ -445,25 +445,6 @@ def render(ctx):
                 )
             return locals()
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
-        selected_draft_key = None
-        if saved_drafts:
-            drafts_by_key = {draft["storage_key"]: draft for draft in saved_drafts}
-            st.markdown("**저장된 작업 불러오기**")
-            selected_draft_key = st.selectbox(
-                "저장된 작업",
-                options=list(drafts_by_key),
-                format_func=lambda storage_key: browser_draft_label(drafts_by_key[storage_key]),
-                label_visibility="collapsed",
-                key="saved_browser_draft_selector",
-            )
-        else:
-            st.selectbox(
-                "저장된 작업",
-                options=["저장된 작업이 없습니다"],
-                disabled=True,
-                label_visibility="collapsed",
-                key="empty_saved_browser_draft_selector",
-            )
 
         st.markdown(
             """
@@ -579,34 +560,26 @@ def render(ctx):
               .st-key-load_sample_targets [data-testid="stCheckbox"] > label {
                 align-items:flex-start!important;
               }
-              .st-key-load_selected_browser_draft button,
-              .st-key-delete_selected_browser_draft button {
-                height:4.5rem!important; min-height:4.5rem!important; padding:0!important; font-weight:750!important;
-              }
-              .st-key-load_selected_browser_draft button {
+              .st-key-open_saved_browser_drafts button {
+                height:4.5rem!important; min-height:4.5rem!important; padding:0 .6rem!important;
+                font-weight:750!important;
                 border:2px solid #f59e0b!important;
                 background:#fff3cd!important;
                 color:#7c2d12!important;
                 -webkit-text-fill-color:#7c2d12!important;
                 box-shadow:0 8px 18px rgba(245, 158, 11, 0.16)!important;
               }
-              .st-key-load_selected_browser_draft button:hover {
+              .st-key-open_saved_browser_drafts button:hover {
                 border-color:#d97706!important;
                 background:#fde68a!important;
                 color:#7c2d12!important;
                 -webkit-text-fill-color:#7c2d12!important;
               }
-              .st-key-delete_selected_browser_draft button {
-                border:1px solid #cbd5e1!important;
-                background:#f8fafc!important;
-                color:#334155!important;
-                -webkit-text-fill-color:#334155!important;
-              }
             </style>
             """,
             unsafe_allow_html=True,
         )
-        upload_col, template_col, load_col, delete_col = st.columns([3, 3, 2.5, 1.5], gap="small")
+        upload_col, template_col, load_col = st.columns([3, 3, 3], gap="small")
         with upload_col:
             uploaded = st.file_uploader(
                 "대상 목록 파일", type=["csv", "xlsx", "xls", "hwpx"],
@@ -622,43 +595,61 @@ def render(ctx):
                 key="download_blank_target_template",
             )
         with load_col:
-            if st.button(
-                "📂 기존 작업 불러오기", key="load_selected_browser_draft",
-                use_container_width=True, disabled=selected_draft_key is None,
+            has_saved_drafts = bool(saved_drafts)
+            popover_label = "📂 기존 작업 불러오기" if has_saved_drafts else "📂 저장된 작업 없음"
+            with st.popover(
+                popover_label, use_container_width=True, disabled=not has_saved_drafts,
+                key="open_saved_browser_drafts",
             ):
-                st.session_state["pending_browser_draft_key"] = selected_draft_key
-                st.rerun()
-        with delete_col:
-            if st.button(
-                "🗑️ 선택 삭제", key="delete_selected_browser_draft",
-                use_container_width=True, disabled=selected_draft_key is None,
-            ):
-                browser_storage.eraseItem(
-                    selected_draft_key,
-                    key=f"erase_selected_paseru_draft_{selected_draft_key[-12:]}",
-                )
-                browser_storage.storedItems.pop(selected_draft_key, None)
-                st.session_state["browser_saved_drafts"] = [
-                    draft for draft in saved_drafts
-                    if draft.get("storage_key") != selected_draft_key
-                ]
-                if st.session_state.get("active_browser_draft_key") == selected_draft_key:
-                    st.session_state.pop("active_browser_draft_key", None)
-                    st.session_state["browser_draft_saving_enabled"] = False
-                    st.session_state.pop("browser_draft_fingerprint", None)
-                    for active_key in (
-                        "browser_restored_df", "browser_source_name", "browser_upload_signature",
-                        "coords_df", "coord_future", "coord_api_calls", "coord_signature",
-                        "mobile_transfer_qr", "station", "route_results", "far_points", "meta",
-                    ):
-                        st.session_state.pop(active_key, None)
-                    st.session_state["sample_mode_active"] = False
-                    st.session_state["file_uploader_generation"] = (
-                        st.session_state.get("file_uploader_generation", 0) + 1
+                if has_saved_drafts:
+                    drafts_by_key = {draft["storage_key"]: draft for draft in saved_drafts}
+                    selected_draft_key = st.selectbox(
+                        "저장된 작업",
+                        options=list(drafts_by_key),
+                        format_func=lambda storage_key: browser_draft_label(drafts_by_key[storage_key]),
+                        label_visibility="collapsed",
+                        key="saved_browser_draft_selector",
                     )
-                st.session_state["browser_draft_deleted_notice"] = True
-                st.rerun()
+                    load_btn_col, delete_btn_col = st.columns(2, gap="small")
+                    with load_btn_col:
+                        if st.button(
+                            "불러오기", key="load_selected_browser_draft",
+                            type="primary", use_container_width=True,
+                        ):
+                            st.session_state["pending_browser_draft_key"] = selected_draft_key
+                            st.rerun()
+                    with delete_btn_col:
+                        if st.button(
+                            "🗑️ 삭제", key="delete_selected_browser_draft",
+                            use_container_width=True,
+                        ):
+                            browser_storage.eraseItem(
+                                selected_draft_key,
+                                key=f"erase_selected_paseru_draft_{selected_draft_key[-12:]}",
+                            )
+                            browser_storage.storedItems.pop(selected_draft_key, None)
+                            st.session_state["browser_saved_drafts"] = [
+                                draft for draft in saved_drafts
+                                if draft.get("storage_key") != selected_draft_key
+                            ]
+                            if st.session_state.get("active_browser_draft_key") == selected_draft_key:
+                                st.session_state.pop("active_browser_draft_key", None)
+                                st.session_state["browser_draft_saving_enabled"] = False
+                                st.session_state.pop("browser_draft_fingerprint", None)
+                                for active_key in (
+                                    "browser_restored_df", "browser_source_name", "browser_upload_signature",
+                                    "coords_df", "coord_future", "coord_api_calls", "coord_signature",
+                                    "mobile_transfer_qr", "station", "route_results", "far_points", "meta",
+                                ):
+                                    st.session_state.pop(active_key, None)
+                                st.session_state["sample_mode_active"] = False
+                                st.session_state["file_uploader_generation"] = (
+                                    st.session_state.get("file_uploader_generation", 0) + 1
+                                )
+                            st.session_state["browser_draft_deleted_notice"] = True
+                            st.rerun()
 
+        st.markdown("<div style='height:0.9rem'></div>", unsafe_allow_html=True)
         notice_privacy, notice_storage, notice_mobile = st.columns(3, gap="small")
         with notice_privacy:
             st.markdown(
