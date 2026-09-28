@@ -326,8 +326,8 @@ def render_login_hero():
       }
       .paseru-mascot-icon {
         flex: 0 0 auto;
-        width: clamp(112px, 24vw, 146px);
-        height: clamp(112px, 24vw, 146px);
+        width: clamp(86px, 16vw, 112px);
+        height: clamp(86px, 16vw, 112px);
         margin-top: 0;
         padding: 0;
         border-radius: 22px;
@@ -335,6 +335,7 @@ def render_login_hero():
         object-position: center;
         background: #ffffff;
         box-shadow: 0 8px 22px rgba(11, 47, 95, .17);
+        image-rendering: auto;
       }
       .paseru-login-kicker {
         color: #a33a3f;
@@ -434,7 +435,8 @@ def render_login_hero():
           margin-top: .35rem;
         }
         .paseru-mascot-icon {
-          width: 88px;
+          width: 82px;
+          height: 82px;
           margin-top: 0;
           border-radius: 17px;
         }
