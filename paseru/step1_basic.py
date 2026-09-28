@@ -169,39 +169,40 @@ def render(ctx):
         if "load_sample_targets" not in st.session_state:
             st.session_state["load_sample_targets"] = (restored_df is None)
 
-        st.markdown("**대상 목록 업로드**")
-        action_col1, action_col2 = st.columns(2, gap="small")
-        with action_col1:
-            if st.button(
-                "🚨 긴급 노선안내",
-                key="open_hydrant_direct_panel",
-                use_container_width=True,
-                help="목적지 1곳을 QR코드로 빠르게 공유합니다.",
-            ):
-                st.session_state["show_hydrant_direct_panel"] = True
-                st.session_state["load_sample_targets"] = False
-                st.session_state["sample_mode_active"] = False
-        with action_col2:
-            if st.button(
-                "🧪 기능확인용 예시 불러오기",
-                key="load_sample_targets_button",
-                use_container_width=True,
-                help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
-            ):
-                st.session_state["load_sample_targets"] = True
-                st.session_state["sample_mode_active"] = True
-                st.session_state["show_hydrant_direct_panel"] = False
-                st.session_state.pop("hydrant_direct_result", None)
+        emergency_mode = bool(st.session_state.get("show_hydrant_direct_panel", False))
+        if not emergency_mode:
+            st.markdown("**대상 목록 업로드**")
+            action_col1, action_col2 = st.columns(2, gap="small")
+            with action_col1:
+                if st.button(
+                    "🚨 긴급 노선안내",
+                    key="open_hydrant_direct_panel",
+                    use_container_width=True,
+                    help="목적지 1곳을 QR코드로 빠르게 공유합니다.",
+                ):
+                    st.session_state["show_hydrant_direct_panel"] = True
+                    st.session_state["load_sample_targets"] = False
+                    st.session_state["sample_mode_active"] = False
+            with action_col2:
+                if st.button(
+                    "🧪 기능확인용 예시 불러오기",
+                    key="load_sample_targets_button",
+                    use_container_width=True,
+                    help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
+                ):
+                    st.session_state["load_sample_targets"] = True
+                    st.session_state["sample_mode_active"] = True
+                    st.session_state["show_hydrant_direct_panel"] = False
+                    st.session_state.pop("hydrant_direct_result", None)
 
         use_sample = bool(st.session_state.get("load_sample_targets", False))
-        if use_sample:
+        if use_sample and not emergency_mode:
             st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
         if st.session_state.get("show_hydrant_direct_panel", False):
             st.warning("🚨 긴급 공유 안내: 동료에게 소화전 및 집결지 위치를 카카오내비(QR코드)로 안내합니다.")
             if station_lat is not None and station_lng is not None:
                 origin_ready = True
-                st.success(f"출발지: {station_name} · {station_address}")
             else:
                 origin_ready = False
                 st.info("먼저 상단의 출발부서 이름(주소)을 조회하거나 현 위치 조회로 출발지를 설정하세요.")
@@ -209,10 +210,10 @@ def render(ctx):
             hydrant_address_col, hydrant_no_col = st.columns([2.15, 1], gap="small")
             with hydrant_address_col:
                 hydrant_address = st.text_input(
-                    "목적지 주소(소화전·지원집결지)",
-                    placeholder="예: 경북 성주군 ○○읍 ○○리 000",
+                    "목적지명 또는 주소(소화전·지원집결지)",
+                    placeholder="예: 용사리 소화전 114호 또는 경북 성주군 ○○읍 ○○리 000",
                     key="hydrant_direct_target_address",
-                    help="소화전 또는 지원집결지 등 동료에게 안내할 목적지 주소를 입력하세요.",
+                    help="좌표 확인이 끝난 대상명 또는 직접 주소를 입력하세요.",
                 )
             with hydrant_no_col:
                 number_col, suffix_col = st.columns([5.5, 1], gap="small")
@@ -244,7 +245,39 @@ def render(ctx):
                 origin_address = station_address
                 origin_name = station_name or "출발지"
 
-                hydrant_lat, hydrant_lng, hydrant_status = geocode_once(hydrant_address.strip())
+                destination_query = hydrant_address.strip()
+                matched_destination = None
+                coords_df = st.session_state.get("coords_df")
+                if isinstance(coords_df, pd.DataFrame) and len(coords_df):
+                    normalized_query = _cell_text(destination_query).replace(" ", "")
+                    for _, row in coords_df.iterrows():
+                        row_name = _cell_text(row.get("대상명", ""))
+                        row_address = _cell_text(row.get("주소", ""))
+                        if normalized_query and normalized_query in {
+                            row_name.replace(" ", ""),
+                            row_address.replace(" ", ""),
+                        }:
+                            try:
+                                row_lat = float(row.get("위도"))
+                                row_lng = float(row.get("경도"))
+                                if not (math.isnan(row_lat) or math.isnan(row_lng)):
+                                    matched_destination = {
+                                        "name": row_name or destination_query,
+                                        "address": row_address or destination_query,
+                                        "lat": row_lat,
+                                        "lng": row_lng,
+                                    }
+                                    break
+                            except (TypeError, ValueError):
+                                pass
+
+                if matched_destination:
+                    hydrant_lat = matched_destination["lat"]
+                    hydrant_lng = matched_destination["lng"]
+                    hydrant_status = "ok"
+                else:
+                    hydrant_lat, hydrant_lng, hydrant_status = geocode_once(destination_query)
+
                 if scene_status == "ok" and hydrant_status == "ok":
                     destination_label = hydrant_direct_no.strip()
                     hydrant_no = re.sub(r"^(소화전\s*)?", "", destination_label)
@@ -253,6 +286,8 @@ def render(ctx):
                         hydrant_display_name = f"소화전 {hydrant_no}호"
                     elif destination_label:
                         hydrant_display_name = destination_label
+                    elif matched_destination:
+                        hydrant_display_name = matched_destination["name"]
                     else:
                         hydrant_display_name = "긴급 목적지"
                     origin = {
@@ -263,7 +298,7 @@ def render(ctx):
                     }
                     destination = {
                         "name": hydrant_display_name,
-                        "address": hydrant_address.strip(),
+                        "address": matched_destination["address"] if matched_destination else destination_query,
                         "lat": hydrant_lat,
                         "lng": hydrant_lng,
                     }
@@ -396,6 +431,7 @@ def render(ctx):
                     "※ 지도와 예상거리는 입력한 출발지 기준입니다. 카카오맵 실행 후 실제 내비는 "
                     "사용자의 현재 위치 기준으로 다시 안내될 수 있습니다."
                 )
+            return locals()
         saved_drafts = st.session_state.get("browser_saved_drafts", [])
         selected_draft_key = None
         if saved_drafts:
