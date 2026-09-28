@@ -461,17 +461,27 @@ def render(ctx):
               .st-key-open_hydrant_direct_panel button > * {
                 display:none!important;
               }
-              .st-key-open_hydrant_direct_panel button::after {
-                content:"🚨 [긴급] 소화전 또는 지원집결지 노선안내\\A동료에게 소화전 및 집결지 위치를 카카오내비(QR코드) 안내";
-                white-space:pre-line!important;
+              .st-key-open_hydrant_direct_panel button::before {
+                content:"🚨 [긴급] 소화전 또는 지원집결지 노선안내";
                 display:block!important;
                 color:#ffffff!important;
                 -webkit-text-fill-color:#ffffff!important;
-                font-size:.88rem!important;
-                font-weight:900!important;
-                line-height:1.32!important;
+                font-size:1.02rem!important;
+                font-weight:950!important;
+                line-height:1.25!important;
                 text-align:center!important;
-                padding:0 .25rem!important;
+                padding:0 .18rem!important;
+              }
+              .st-key-open_hydrant_direct_panel button::after {
+                content:"동료에게 소화전 및 집결지 위치를 카카오내비(QR코드) 안내";
+                display:block!important;
+                color:#fff7ed!important;
+                -webkit-text-fill-color:#fff7ed!important;
+                font-size:.72rem!important;
+                font-weight:800!important;
+                line-height:1.28!important;
+                text-align:center!important;
+                padding:.12rem .18rem 0!important;
               }
               .st-key-open_hydrant_direct_panel button:hover {
                 border-color:#7f1d1d!important; background:linear-gradient(135deg,#ef4444 0%,#991b1b 100%)!important;
