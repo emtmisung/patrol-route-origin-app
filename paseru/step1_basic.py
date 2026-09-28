@@ -183,6 +183,7 @@ def render(ctx):
                     st.session_state["show_hydrant_direct_panel"] = True
                     st.session_state["load_sample_targets"] = False
                     st.session_state["sample_mode_active"] = False
+                    st.rerun()
             with action_col2:
                 if st.button(
                     "🧪 기능확인용 예시 불러오기",
@@ -200,7 +201,6 @@ def render(ctx):
             st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
         if st.session_state.get("show_hydrant_direct_panel", False):
-            st.warning("🚨 긴급 공유 안내: 동료에게 소화전 및 집결지 위치를 카카오내비(QR코드)로 안내합니다.")
             if station_lat is not None and station_lng is not None:
                 origin_ready = True
             else:
