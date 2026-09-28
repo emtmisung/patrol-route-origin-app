@@ -192,7 +192,8 @@ def main():
     fail_check(at, "hydrant", out)
     out.append("=== HYDRANT DIRECT ===")
     out += snapshot(at)
-    # 다시 예시로
+    # 긴급 노선안내 화면에서 나가고 다시 예시로
+    at.button(key="close_hydrant_direct_panel").click().run()
     at.button(key="load_sample_targets_button").click().run()
     for _ in range(40):
         if any(b.label == "🔄 대상 좌표 다시 검색" for b in at.button):

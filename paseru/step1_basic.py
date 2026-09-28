@@ -201,6 +201,10 @@ def render(ctx):
             st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
         if st.session_state.get("show_hydrant_direct_panel", False):
+            if st.button("← 대상 목록 화면으로 돌아가기", key="close_hydrant_direct_panel"):
+                st.session_state["show_hydrant_direct_panel"] = False
+                st.session_state.pop("hydrant_direct_result", None)
+                st.rerun()
             if station_lat is not None and station_lng is not None:
                 origin_ready = True
             else:
