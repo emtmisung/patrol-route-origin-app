@@ -172,7 +172,7 @@ def render(ctx):
         action_col1, action_col2 = st.columns(2, gap="small")
         with action_col1:
             if st.button(
-                "🚨 [긴급] 소화전 또는 지원집결지 노선안내\n동료에게 소화전 및 집결지 위치를 카카오내비(QR코드) 안내",
+                "🚨 긴급 노선안내",
                 key="open_hydrant_direct_panel",
                 use_container_width=True,
                 help="목적지 1곳을 QR코드로 빠르게 공유합니다.",
@@ -454,6 +454,23 @@ def render(ctx):
                 color:#ffffff!important;
                 -webkit-text-fill-color:#ffffff!important;
                 box-shadow:0 10px 24px rgba(153,27,27,.28)!important;
+                font-size:0!important;
+                overflow:hidden!important;
+              }
+              .st-key-open_hydrant_direct_panel button > * {
+                display:none!important;
+              }
+              .st-key-open_hydrant_direct_panel button::after {
+                content:"🚨 [긴급] 소화전 또는 지원집결지 노선안내\\A동료에게 소화전 및 집결지 위치를 카카오내비(QR코드) 안내";
+                white-space:pre-line!important;
+                display:block!important;
+                color:#ffffff!important;
+                -webkit-text-fill-color:#ffffff!important;
+                font-size:.88rem!important;
+                font-weight:900!important;
+                line-height:1.32!important;
+                text-align:center!important;
+                padding:0 .25rem!important;
               }
               .st-key-open_hydrant_direct_panel button:hover {
                 border-color:#7f1d1d!important; background:linear-gradient(135deg,#ef4444 0%,#991b1b 100%)!important;
