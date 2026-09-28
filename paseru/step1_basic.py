@@ -445,7 +445,7 @@ def render(ctx):
               .st-key-open_hydrant_direct_panel button,
               .st-key-load_sample_targets_button button {
                 height:5.2rem!important; min-height:5.2rem!important; padding:.35rem .55rem!important;
-                border-radius:10px!important; font-size:1.02rem!important; font-weight:900!important;
+                border-radius:10px!important; font-size:1.08rem!important; font-weight:900!important;
                 line-height:1.35!important; white-space:pre-line!important;
                 box-shadow:0 8px 18px rgba(15, 23, 42, 0.12)!important;
               }
@@ -462,7 +462,7 @@ def render(ctx):
                 display:none!important;
               }
               .st-key-open_hydrant_direct_panel button::before {
-                content:"🚨 [긴급] 소화전 또는 지원집결지 노선안내";
+                content:"🚨 [긴급] 목적지 노선안내";
                 display:block!important;
                 color:#ffffff!important;
                 -webkit-text-fill-color:#ffffff!important;
@@ -470,17 +470,19 @@ def render(ctx):
                 font-weight:950!important;
                 line-height:1.25!important;
                 text-align:center!important;
+                white-space:nowrap!important;
                 padding:0 .18rem!important;
               }
               .st-key-open_hydrant_direct_panel button::after {
-                content:"동료에게 소화전 및 집결지 위치를 카카오내비(QR코드) 안내";
+                content:"소화전·집결지를 카카오내비 QR로 공유";
                 display:block!important;
                 color:#fff7ed!important;
                 -webkit-text-fill-color:#fff7ed!important;
-                font-size:.72rem!important;
+                font-size:.78rem!important;
                 font-weight:800!important;
                 line-height:1.28!important;
                 text-align:center!important;
+                white-space:nowrap!important;
                 padding:.12rem .18rem 0!important;
               }
               .st-key-open_hydrant_direct_panel button:hover {
