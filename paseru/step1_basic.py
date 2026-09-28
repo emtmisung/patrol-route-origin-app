@@ -169,34 +169,40 @@ def render(ctx):
             st.session_state["load_sample_targets"] = (restored_df is None)
 
         st.markdown("**대상 목록 업로드**")
-        action_col1, action_col2 = st.columns(2, gap="small")
+        emergency_mode = bool(st.session_state.get("show_hydrant_direct_panel", False))
+        if emergency_mode:
+            action_col1, _ = st.columns([1, 1], gap="small")
+        else:
+            action_col1, action_col2 = st.columns(2, gap="small")
         with action_col1:
             if st.button(
-                "🚒 소화전 현장안내",
+                "🚨 [긴급] 소화전 또는 지원집결지 노선안내",
                 key="open_hydrant_direct_panel",
                 use_container_width=True,
-                help="엑셀 없이 현장주소와 소화전 주소 1건을 바로 카카오맵으로 연결합니다.",
+                help="동료에게 소화전 및 집결지 위치를 카카오내비(QR코드)로 안내합니다.",
             ):
                 st.session_state["show_hydrant_direct_panel"] = True
                 st.session_state["load_sample_targets"] = False
                 st.session_state["sample_mode_active"] = False
-        with action_col2:
-            if st.button(
-                "🧪 기능확인용 예시 불러오기",
-                key="load_sample_targets_button",
-                use_container_width=True,
-                help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
-            ):
-                st.session_state["load_sample_targets"] = True
-                st.session_state["sample_mode_active"] = True
-                st.session_state["show_hydrant_direct_panel"] = False
-                st.session_state.pop("hydrant_direct_result", None)
+        if not emergency_mode:
+            with action_col2:
+                if st.button(
+                    "🧪 기능확인용 예시 불러오기",
+                    key="load_sample_targets_button",
+                    use_container_width=True,
+                    help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
+                ):
+                    st.session_state["load_sample_targets"] = True
+                    st.session_state["sample_mode_active"] = True
+                    st.session_state["show_hydrant_direct_panel"] = False
+                    st.session_state.pop("hydrant_direct_result", None)
 
         use_sample = bool(st.session_state.get("load_sample_targets", False))
         if use_sample:
             st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
         if st.session_state.get("show_hydrant_direct_panel", False):
+            st.warning("🚨 긴급 공유 안내: 동료에게 소화전 및 집결지 위치를 카카오내비(QR코드)로 안내합니다.")
             if station_lat is not None and station_lng is not None:
                 origin_ready = True
                 st.success(f"출발지: {station_name} · {station_address}")
@@ -207,24 +213,24 @@ def render(ctx):
             hydrant_address_col, hydrant_no_col = st.columns([2.15, 1], gap="small")
             with hydrant_address_col:
                 hydrant_address = st.text_input(
-                    "소화전 주소(목적지)",
+                    "목적지 주소(소화전·지원집결지)",
                     placeholder="예: 경북 성주군 ○○읍 ○○리 000",
                     key="hydrant_direct_target_address",
-                    help="이미 파악한 소화전 1개의 주소를 입력하세요.",
+                    help="소화전 또는 지원집결지 등 동료에게 안내할 목적지 주소를 입력하세요.",
                 )
             with hydrant_no_col:
                 number_col, suffix_col = st.columns([5.5, 1], gap="small")
                 with number_col:
                     hydrant_direct_no = st.text_input(
-                        "소화전 번호",
-                        placeholder="예: 114",
+                        "표시명(선택)",
+                        placeholder="예: 114 또는 지원집결지",
                         key="hydrant_direct_no",
-                        help="숫자만 입력하면 결과와 QR에는 '소화전 114호'처럼 표시됩니다.",
+                        help="숫자만 입력하면 '소화전 114호'로, 글자를 입력하면 그 이름으로 표시됩니다.",
                     )
                 with suffix_col:
                     st.markdown("<div style='height:1.72rem'></div>", unsafe_allow_html=True)
                     st.markdown(
-                        "<div style='padding:.6rem 0;text-align:center;font-weight:800;color:#7f1d1d;'>호</div>",
+                        "<div style='padding:.6rem 0;text-align:center;font-weight:800;color:#7f1d1d;'>명</div>",
                         unsafe_allow_html=True,
                     )
 
@@ -244,9 +250,15 @@ def render(ctx):
 
                 hydrant_lat, hydrant_lng, hydrant_status = geocode_once(hydrant_address.strip())
                 if scene_status == "ok" and hydrant_status == "ok":
-                    hydrant_no = re.sub(r"^(소화전\s*)?", "", hydrant_direct_no.strip())
+                    destination_label = hydrant_direct_no.strip()
+                    hydrant_no = re.sub(r"^(소화전\s*)?", "", destination_label)
                     hydrant_no = re.sub(r"\s*호$", "", hydrant_no).strip()
-                    hydrant_display_name = f"소화전 {hydrant_no}호" if hydrant_no else "소화전"
+                    if hydrant_no and re.fullmatch(r"\d{1,3}", hydrant_no):
+                        hydrant_display_name = f"소화전 {hydrant_no}호"
+                    elif destination_label:
+                        hydrant_display_name = destination_label
+                    else:
+                        hydrant_display_name = "긴급 목적지"
                     origin = {
                         "name": origin_name,
                         "address": origin_address,
@@ -275,10 +287,10 @@ def render(ctx):
             direct_result = st.session_state.get("hydrant_direct_result")
             if isinstance(direct_result, dict) and direct_result.get("error"):
                 error_info = direct_result["error"]
-                st.error("주소 좌표를 찾지 못했습니다. 현장주소와 소화전 주소를 도로명 또는 지번까지 조금 더 정확히 입력해 주세요.")
+                st.error("주소 좌표를 찾지 못했습니다. 출발지와 목적지 주소를 도로명 또는 지번까지 조금 더 정확히 입력해 주세요.")
                 st.caption(
                     f"현장주소 검색결과: {error_info.get('scene_status')} · "
-                    f"소화전주소 검색결과: {error_info.get('hydrant_status')}"
+                    f"목적지주소 검색결과: {error_info.get('hydrant_status')}"
                 )
             elif isinstance(direct_result, dict) and direct_result.get("url"):
                 origin = direct_result["origin"]
@@ -298,7 +310,7 @@ def render(ctx):
                         (destination["lat"], destination["lng"]),
                     ]
 
-                st.success("소화전 현장길안내 결과가 준비되었습니다.")
+                st.success("긴급 목적지 노선안내 결과가 준비되었습니다.")
                 info_a, info_b = st.columns(2)
                 with info_a:
                     st.caption("출발지")
@@ -310,7 +322,7 @@ def render(ctx):
                     st.caption(destination["address"])
 
                 with st.container(border=True):
-                    st.markdown("#### 🗺️ 소화전 현장길안내 지도")
+                    st.markdown("#### 🗺️ 긴급 목적지 노선안내 지도")
                     st.caption(
                         f"{origin['name']} → {destination['name']} · "
                         f"약 {route_km:.1f}km · {route_min:.0f}분"
@@ -335,7 +347,7 @@ def render(ctx):
                     ).add_to(hydrant_map)
                     folium.Marker(
                         [destination["lat"], destination["lng"]],
-                        tooltip=f"소화전: {destination['name']}",
+                        tooltip=f"목적지: {destination['name']}",
                         icon=folium.DivIcon(
                             icon_size=(72, 28), icon_anchor=(36, 14),
                             html=(
@@ -343,7 +355,7 @@ def render(ctx):
                                 'padding:4px 9px;border-radius:14px;border:2px solid #ffffff;'
                                 'box-shadow:0 1px 5px rgba(0,0,0,.45);text-align:center;'
                                 'font-family:sans-serif;font-weight:800;font-size:12px;'
-                                'line-height:1.2;white-space:nowrap;">소화전</div>'
+                                'line-height:1.2;white-space:nowrap;">목적지</div>'
                             ),
                         ),
                     ).add_to(hydrant_map)
@@ -351,7 +363,7 @@ def render(ctx):
 
                 st.markdown("**🟨 카카오맵 — 길안내 및 공유용 QR**")
                 st.link_button(
-                    "🚗 카카오맵으로 소화전 길안내 열기",
+                    "🚗 카카오맵으로 긴급 목적지 길안내 열기",
                     guide_url,
                     type="primary",
                     use_container_width=True,
@@ -362,7 +374,7 @@ def render(ctx):
                           if hasattr(st, "popover")
                           else st.expander("📱 동료 공유용 QR 열기"))
                 with qr_box:
-                    st.markdown("### 소화전 현장길안내")
+                    st.markdown("### 긴급 목적지 노선안내")
                     st.caption(
                         f"이 화면을 캡처해 현장 단톡방에 공유하거나, "
                         f"아래 버튼으로 QR 이미지만 저장해 인쇄물에 넣을 수 있습니다."
@@ -378,7 +390,7 @@ def render(ctx):
                     st.download_button(
                         "QR 이미지 파일 다운로드",
                         data=qr_png,
-                        file_name="소화전_현장길안내_QR.png",
+                        file_name="긴급_목적지_노선안내_QR.png",
                         mime="image/png",
                         key="hydrant_direct_qr_download",
                         use_container_width=True,
@@ -441,13 +453,14 @@ def render(ctx):
                 box-shadow:0 8px 18px rgba(15, 23, 42, 0.12)!important;
               }
               .st-key-open_hydrant_direct_panel button {
-                border:2px solid #b91c1c!important;
-                background:#fee2e2!important;
-                color:#7f1d1d!important;
-                -webkit-text-fill-color:#7f1d1d!important;
+                border:3px solid #991b1b!important;
+                background:linear-gradient(135deg,#dc2626 0%,#991b1b 100%)!important;
+                color:#ffffff!important;
+                -webkit-text-fill-color:#ffffff!important;
+                box-shadow:0 10px 24px rgba(153,27,27,.28)!important;
               }
               .st-key-open_hydrant_direct_panel button:hover {
-                border-color:#991b1b!important; background:#fecaca!important;
+                border-color:#7f1d1d!important; background:linear-gradient(135deg,#ef4444 0%,#991b1b 100%)!important;
               }
               .st-key-load_sample_targets_button button {
                 border:2px solid #f59e0b!important;
