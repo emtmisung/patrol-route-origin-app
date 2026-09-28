@@ -169,33 +169,28 @@ def render(ctx):
             st.session_state["load_sample_targets"] = (restored_df is None)
 
         st.markdown("**대상 목록 업로드**")
-        emergency_mode = bool(st.session_state.get("show_hydrant_direct_panel", False))
-        if emergency_mode:
-            action_col1, _ = st.columns([1, 1], gap="small")
-        else:
-            action_col1, action_col2 = st.columns(2, gap="small")
+        action_col1, action_col2 = st.columns(2, gap="small")
         with action_col1:
             if st.button(
-                "🚨 [긴급] 소화전 또는 지원집결지 노선안내",
+                "🚨 [긴급] 소화전 또는 지원집결지 노선안내\n동료에게 소화전 및 집결지 위치를 카카오내비(QR코드) 안내",
                 key="open_hydrant_direct_panel",
                 use_container_width=True,
-                help="동료에게 소화전 및 집결지 위치를 카카오내비(QR코드)로 안내합니다.",
+                help="목적지 1곳을 QR코드로 빠르게 공유합니다.",
             ):
                 st.session_state["show_hydrant_direct_panel"] = True
                 st.session_state["load_sample_targets"] = False
                 st.session_state["sample_mode_active"] = False
-        if not emergency_mode:
-            with action_col2:
-                if st.button(
-                    "🧪 기능확인용 예시 불러오기",
-                    key="load_sample_targets_button",
-                    use_container_width=True,
-                    help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
-                ):
-                    st.session_state["load_sample_targets"] = True
-                    st.session_state["sample_mode_active"] = True
-                    st.session_state["show_hydrant_direct_panel"] = False
-                    st.session_state.pop("hydrant_direct_result", None)
+        with action_col2:
+            if st.button(
+                "🧪 기능확인용 예시 불러오기",
+                key="load_sample_targets_button",
+                use_container_width=True,
+                help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
+            ):
+                st.session_state["load_sample_targets"] = True
+                st.session_state["sample_mode_active"] = True
+                st.session_state["show_hydrant_direct_panel"] = False
+                st.session_state.pop("hydrant_direct_result", None)
 
         use_sample = bool(st.session_state.get("load_sample_targets", False))
         if use_sample:
@@ -448,8 +443,9 @@ def render(ctx):
               }
               .st-key-open_hydrant_direct_panel button,
               .st-key-load_sample_targets_button button {
-                height:4.5rem!important; min-height:4.5rem!important; padding:0!important;
+                height:5.2rem!important; min-height:5.2rem!important; padding:.35rem .55rem!important;
                 border-radius:10px!important; font-size:1.02rem!important; font-weight:900!important;
+                line-height:1.35!important; white-space:pre-line!important;
                 box-shadow:0 8px 18px rgba(15, 23, 42, 0.12)!important;
               }
               .st-key-open_hydrant_direct_panel button {
