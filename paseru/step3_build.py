@@ -241,13 +241,13 @@ def render(ctx):
                 else:
                     st.error("검사 가능한 날짜가 없습니다. 검사기간 또는 검사 가능 요일을 조정하세요.")
 
-            monthly_capped = usage_tracker.monthly_limit_reached()
+            monthly_capped = usage_tracker.monthly_limit_reached("directions")
             run_disabled = (
                 not has_keys() or n_ready == 0 or monthly_capped or
                 (purpose == "inspect" and inspect_capacity == 0)
             )
             if monthly_capped:
-                st.error("⚠️ 이번 달 API 호출 자체 상한에 도달해 노선 생성을 시작할 수 없습니다. 관리자에게 문의해주세요.")
+                st.error("⚠️ 이번 달 길찾기(Directions) API 호출 자체 상한에 도달해 노선 생성을 시작할 수 없습니다. 관리자에게 문의해주세요.")
             run_col1, run_col2 = st.columns(2)
             with run_col1:
                 run = st.button(

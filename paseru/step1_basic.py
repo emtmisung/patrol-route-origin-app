@@ -826,7 +826,7 @@ def render(ctx):
                 continue
             lat, lng, used_q, used_why, tried = geocode_with_fallback(
                 ad, nm, on_call=count_call,
-                should_stop=lambda: api_calls >= API_CALL_LIMIT or usage_tracker.monthly_limit_reached(),
+                should_stop=lambda: api_calls >= API_CALL_LIMIT or usage_tracker.monthly_limit_reached("geocode"),
             )
             if lat is None:
                 rows.append({"대상명": nm, "주소": ad, "위도": None, "경도": None,
@@ -862,9 +862,9 @@ def render(ctx):
             coord_future = st.session_state.get("coord_future")
             saved_early = st.session_state.get("coords_df")
             if coord_future is None and saved_early is None:
-                monthly_capped = usage_tracker.monthly_limit_reached()
+                monthly_capped = usage_tracker.monthly_limit_reached("geocode")
                 if monthly_capped:
-                    st.error("⚠️ 이번 달 API 호출 자체 상한에 도달해 좌표 검색을 시작할 수 없습니다. 관리자에게 문의해주세요.")
+                    st.error("⚠️ 이번 달 지오코딩(주소검색) API 호출 자체 상한에 도달해 좌표 검색을 시작할 수 없습니다. 관리자에게 문의해주세요.")
                 if st.button("🔴 좌표 검색 시작", type="primary", use_container_width=True,
                              disabled=not has_keys() or monthly_capped):
                     st.session_state["coord_future"] = coordinate_executor().submit(

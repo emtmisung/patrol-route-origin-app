@@ -37,7 +37,7 @@ def geocode_once(address: str):
         r = requests.get(
             GEOCODE_URL, params={"query": address}, headers=ncp_headers(), timeout=10
         )
-        usage_tracker.add_calls(1)
+        usage_tracker.add_calls("geocode", 1)
         if r.status_code != 200:
             return None, None, f"error:HTTP {r.status_code}"
         data = r.json()
@@ -75,7 +75,7 @@ def search_departure_department(query: str):
             },
             timeout=10,
         )
-        usage_tracker.add_calls(1)
+        usage_tracker.add_calls("place", 1)
         if place_response.status_code == 200:
             places = place_response.json().get("place") or []
             if places:
@@ -97,7 +97,7 @@ def search_departure_department(query: str):
         r = requests.get(
             GEOCODE_URL, params={"query": query}, headers=ncp_headers(), timeout=10
         )
-        usage_tracker.add_calls(1)
+        usage_tracker.add_calls("geocode", 1)
         if r.status_code != 200:
             detail = ""
             try:
@@ -204,7 +204,7 @@ def road_route(o_lat, o_lng, d_lat, d_lng):
             headers=ncp_headers(),
             timeout=10,
         )
-        usage_tracker.add_calls(1)
+        usage_tracker.add_calls("directions", 1)
         data = r.json()
         route = data.get("route", {})
         for key in ("trafast", "traoptimal", "tracomfort"):

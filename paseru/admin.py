@@ -7,7 +7,7 @@ import hmac
 import streamlit as st
 
 from paseru import usage_tracker
-from paseru.settings import MONTHLY_API_LIMIT, admin_password
+from paseru.settings import MONTHLY_LIMITS, admin_password
 
 
 def maybe_render_admin_panel():
@@ -43,25 +43,34 @@ def maybe_render_admin_panel():
         st.cache_resource.clear()
         st.rerun()
 
-    used, _ = usage_tracker.current_month_usage()
-    remaining = max(0, MONTHLY_API_LIMIT - used)
-    ratio = min(1.0, used / MONTHLY_API_LIMIT) if MONTHLY_API_LIMIT else 0
+    api_display = {"geocode": "지오코딩(주소검색)", "directions": "길찾기(Directions5)"}
+    for api_type, label in api_display.items():
+        limit = MONTHLY_LIMITS.get(api_type, 0)
+        used, _ = usage_tracker.current_month_usage(api_type)
+        remaining = max(0, limit - used)
+        ratio = min(1.0, used / limit) if limit else 0
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("이번 달 사용량", f"{used:,}건")
-    col2.metric("이번 달 상한", f"{MONTHLY_API_LIMIT:,}건")
-    col3.metric("남은 호출", f"{remaining:,}건")
-    st.progress(ratio, text=f"{ratio*100:.1f}% 사용")
-    if used >= MONTHLY_API_LIMIT:
-        st.error("이번 달 상한에 도달해 현재 앱에서 새 검색·노선 생성이 막혀 있습니다.")
-    elif ratio >= 0.9:
-        st.warning("이번 달 상한의 90%를 넘었습니다. 사용량이 몰리는 시기라면 다음 달 초까지 여유를 확인하세요.")
+        st.markdown(f"#### {label}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("이번 달 사용량", f"{used:,}건")
+        col2.metric("이번 달 자체 상한", f"{limit:,}건")
+        col3.metric("남은 호출", f"{remaining:,}건")
+        st.progress(ratio, text=f"{ratio*100:.1f}% 사용")
+        if used >= limit:
+            st.error(f"이번 달 {label} 상한에 도달해 관련 기능이 막혀 있습니다.")
+        elif ratio >= 0.9:
+            st.warning(f"이번 달 {label} 상한의 90%를 넘었습니다.")
 
     st.markdown("#### 월별 사용 내역")
     history = usage_tracker.monthly_usage_all()
     if history:
         st.dataframe(
-            {"월": [h[0] for h in history], "호출수": [f"{h[1]:,}" for h in history]},
+            {
+                "월": [h[0] for h in history],
+                "geocode": [f"{h[1]['geocode']:,}" for h in history],
+                "directions": [f"{h[1]['directions']:,}" for h in history],
+                "place(카카오, 무료)": [f"{h[1]['place']:,}" for h in history],
+            },
             use_container_width=True, hide_index=True,
         )
     else:

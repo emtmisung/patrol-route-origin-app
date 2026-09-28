@@ -17,7 +17,14 @@ AUTH_REMEMBER_DAYS = 30
 AVG_SPEED_KMH = 35.0      # NCP 호출 실패 시에만 쓰는 비상 대체값(직선거리 보정)
 ROAD_FACTOR = 1.3         # NCP 호출 실패 시에만 쓰는 비상 대체 보정계수
 API_CALL_LIMIT = 3000     # 작업 1건 안에서의 연속 호출 제한(과도한 연속 호출 방지용)
-MONTHLY_API_LIMIT = 2_800_000  # 한 달 전체 호출 자체 상한(NCP 무료 한도 300만 건보다 여유를 둠)
+
+# NCP 콘솔의 실제 월별 무료(과금) 한도는 API마다 다르다 — 콘솔 값보다 여유를 둔 자체 상한.
+#   지오코딩(Geocoding) 콘솔 한도: 월 300만 건 → 자체 상한 280만 건
+#   길찾기(Directions5) 콘솔 한도: 월 6만 건   → 자체 상한 5만 5천 건 (실사용에서 훨씬 많이 쓰임)
+MONTHLY_LIMITS = {
+    "geocode": 2_800_000,
+    "directions": 55_000,
+}
 USAGE_FLUSH_EVERY = 20    # 구글시트에 몇 건마다 모아서 기록할지(시트 API 호출 절약용)
 
 SAMPLE_XLSX = "seongju_patrol_coordinates_20.xlsx"
