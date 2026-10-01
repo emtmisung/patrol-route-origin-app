@@ -193,10 +193,10 @@ def render(ctx):
                         st.rerun()
             with action_col2:
                 if st.button(
-                    "🧪 기능확인용 예시 불러오기",
+                    "🧪 예시 데이터로 기능 체험",
                     key="load_sample_targets_button",
                     use_container_width=True,
-                    help="평가·시연용 성주군 주요 대상 18건을 불러옵니다.",
+                    help="예시 대상 18건을 불러와 업로드 없이 바로 기능을 체험할 수 있습니다.",
                 ):
                     st.session_state["load_sample_targets"] = True
                     st.session_state["sample_mode_active"] = True
@@ -206,7 +206,7 @@ def render(ctx):
 
         use_sample = bool(st.session_state.get("load_sample_targets", False))
         if use_sample and not emergency_mode:
-            st.caption("평가용 예시: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
+            st.caption("예시 데이터: 오류 표시가 과하게 복잡하지 않도록 오류 확인용 1건만 남긴 목록")
 
         if st.session_state.get("show_hydrant_direct_panel", False):
             if st.button("← 대상 목록 화면으로 돌아가기", key="close_hydrant_direct_panel"):
