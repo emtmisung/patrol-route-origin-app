@@ -65,7 +65,7 @@ def render(ctx):
     with st.container(border=True):
         card_title(1, "기본 정보 · 대상 목록")
         if "patrol_title" not in st.session_state:
-            st.session_state["patrol_title"] = "예시) 소방안전 순찰노선 - 성주군 일원"
+            st.session_state["patrol_title"] = "예시) 소방안전 순찰노선"
         patrol_title = st.text_input("순찰 제목", key="patrol_title")
         station_search_area, current_location_area = st.columns([3, 1], gap="medium")
         with station_search_area:
@@ -73,8 +73,8 @@ def render(ctx):
             with station_input_col:
                 station_query = st.text_input(
                     "출발부서 이름(주소)",
-                    value=st.session_state.get("station_query", "성주소방서"),
-                    placeholder="예: 선남119안전센터 또는 경북 성주군 ○○로 00",
+                    value=st.session_state.get("station_query", ""),
+                    placeholder="예: ○○119안전센터 또는 ○○도 ○○시 ○○로 00",
                     help="소방서·119안전센터·구조구급센터 등 출발할 부서명이나 주소를 입력하세요.",
                 )
             with station_search_col:

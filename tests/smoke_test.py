@@ -141,6 +141,7 @@ def login(at):
 
 def prepare_targets(at):
     # 출발부서 조회
+    by_label(at.text_input, "출발부서 이름(주소)").input("성주소방서").run()
     at.button(key="search_departure_department_btn").click().run()
     # 예시 불러오기
     at.button(key="load_sample_targets_button").click().run()
@@ -172,6 +173,7 @@ def main():
     out += snapshot(at)
 
     # 긴급 노선안내(예시 데이터를 불러오기 전, 즉 버튼이 보이는 상태에서 확인)
+    by_label(at.text_input, "출발부서 이름(주소)").input("성주소방서").run()
     at.button(key="search_departure_department_btn").click().run()
     at.button(key="open_hydrant_direct_panel").click().run()
     at.text_input(key="hydrant_direct_target_address").input("경상북도 성주군 성주읍 경산리 100").run()
